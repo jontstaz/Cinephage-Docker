@@ -1,0 +1,88 @@
+---
+id: eztv
+name: EZTV
+description: TV show torrents
+type: public
+language: en-US
+encoding: UTF-8
+requestdelay: 2
+
+links:
+  - https://eztvx.to
+legacylinks:
+  - https://eztv.re
+  - https://eztv.wf
+  - https://eztv.tf
+  - https://eztv.yt
+  - https://eztv.ch
+
+caps:
+  modes:
+    tv-search: [imdbid]
+  categories:
+    '5000': TV
+  categorymappings:
+    - id: TV
+      cat: '5000'
+      desc: TV Shows
+      default: true
+
+search:
+  paths:
+    - path: /api/get-torrents
+      method: get
+      inputs:
+        imdb_id: '{{ .Query.IMDBID | trimPrefix "tt" }}'
+        limit: '100'
+        page: '1'
+    - path: /api/get-torrents
+      method: get
+      inputs:
+        imdb_id: '{{ .Query.IMDBID | trimPrefix "tt" }}'
+        limit: '100'
+        page: '2'
+    - path: /api/get-torrents
+      method: get
+      inputs:
+        imdb_id: '{{ .Query.IMDBID | trimPrefix "tt" }}'
+        limit: '100'
+        page: '3'
+
+  response:
+    type: json
+
+  rows:
+    selector: torrents
+
+  fields:
+    title:
+      selector: title
+    details:
+      selector: id
+      filters:
+        - name: prepend
+          args: 'https://eztvx.to/ep/'
+    download:
+      selector: torrent_url
+    magnet:
+      selector: magnet_url
+    infohash:
+      selector: hash
+    date:
+      selector: date_released_unix
+      filters:
+        - name: dateparse
+          args: unix
+    size:
+      selector: size_bytes
+    seeders:
+      selector: seeds
+    leechers:
+      selector: peers
+    imdbid:
+      selector: imdb_id
+      filters:
+        - name: prepend
+          args: 'tt'
+    category:
+      text: TV

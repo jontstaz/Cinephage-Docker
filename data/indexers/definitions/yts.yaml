@@ -1,0 +1,80 @@
+---
+id: yts
+name: YTS
+description: YIFY Movies - High quality movie torrents
+type: public
+language: en-US
+encoding: UTF-8
+requestdelay: 2
+
+links:
+  - https://yts.lt
+legacylinks:
+  - https://yts.mx
+  - https://yts.gg
+  - https://yts.am
+  - https://yts.ag
+
+caps:
+  modes:
+    search: [q]
+    movie-search: [q, imdbid]
+  categories:
+    '2000': Movies
+    '2040': Movies/HD
+    '2045': Movies/UHD
+  categorymappings:
+    - id: Movies
+      cat: '2000'
+      default: true
+    - id: '720p'
+      cat: '2040'
+    - id: '1080p'
+      cat: '2040'
+    - id: '2160p'
+      cat: '2045'
+
+search:
+  paths:
+    - path: /api/v2/list_movies.json
+      method: get
+      inputs:
+        query_term: '{{ if .Query.IMDBID }}{{ .Query.IMDBID }}{{ else }}{{ .Keywords }}{{ end }}'
+        limit: '50'
+        sort_by: seeds
+
+  response:
+    type: json
+
+  rows:
+    selector: data.movies
+    # YTS returns an array of movies, each with nested torrents array
+    # We need to flatten this - iterate over each torrent per movie
+    multiple: torrents
+
+  fields:
+    title:
+      # Build title from movie fields + torrent quality + codec
+      text: '{{ .Result.title }} ({{ .Result.year }}) {{ .Result.quality }} {{ .Result.type }} {{ .Result.video_codec }}'
+    details:
+      selector: url
+    download:
+      selector: url
+    infohash:
+      selector: hash
+    date:
+      selector: date_uploaded_unix
+      filters:
+        - name: dateparse
+          args: unix
+    size:
+      selector: size_bytes
+    seeders:
+      selector: seeds
+    leechers:
+      selector: peers
+    imdbid:
+      selector: imdb_code
+      optional: true
+    category:
+      text: Movies

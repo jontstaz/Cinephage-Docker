@@ -1,0 +1,57 @@
+[Unit]
+Description=Cinephage - Self-hosted Media Acquisition System
+Documentation=https://github.com/your-username/cinephage
+After=network.target
+
+[Service]
+Type=simple
+User=cinephage
+Group=cinephage
+WorkingDirectory=/opt/cinephage
+
+# Environment configuration
+# Option 1: Use environment file (recommended)
+EnvironmentFile=-/opt/cinephage/.env
+
+# Option 2: Set directly (uncomment and modify as needed)
+# Environment=HOST=127.0.0.1
+# Environment=PORT=3000
+
+# Always set production mode
+Environment=NODE_ENV=production
+
+# Start the application
+ExecStart=/usr/bin/node build/index.js
+
+# Reload configuration (sends HUP signal)
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Allow write access to required directories
+ReadWritePaths=/opt/cinephage/data
+ReadWritePaths=/opt/cinephage/logs
+
+# Logging to systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cinephage
+
+[Install]
+WantedBy=multi-user.target

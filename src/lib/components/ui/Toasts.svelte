@@ -1,0 +1,60 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+	import { toasts, type ToastType } from '$lib/stores/toast.svelte';
+	import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-svelte';
+	import { fly } from 'svelte/transition';
+
+	const icons: Record<ToastType, typeof CheckCircle> = {
+		success: CheckCircle,
+		error: XCircle,
+		warning: AlertCircle,
+		info: Info
+	};
+
+	const alertClasses: Record<ToastType, string> = {
+		success: 'alert-success',
+		error: 'alert-error',
+		warning: 'alert-warning',
+		info: 'alert-info'
+	};
+</script>
+
+<!-- Toast Container - Fixed position in bottom-right corner -->
+<div class="fixed right-4 bottom-4 z-[100] flex flex-col gap-2" aria-live="polite">
+	{#each toasts.toasts as toast (toast.id)}
+		{@const Icon = icons[toast.type]}
+		<div
+			class="alert max-w-sm shadow-lg {alertClasses[toast.type]}"
+			role="alert"
+			transition:fly={{ x: 100, duration: 300 }}
+		>
+			<Icon class="h-5 w-5 shrink-0" />
+			<div class="flex-1">
+				<p class="font-medium">{toast.message}</p>
+				{#if toast.description}
+					<p class="text-sm opacity-80">{toast.description}</p>
+				{/if}
+			</div>
+			<div class="flex items-center gap-2">
+				{#if toast.action}
+					{#if toast.action.href}
+						<a href={resolve(toast.action.href as string)} class="btn btn-ghost btn-xs">
+							{toast.action.label}
+						</a>
+					{:else if toast.action.onClick}
+						<button class="btn btn-ghost btn-xs" onclick={toast.action.onClick}>
+							{toast.action.label}
+						</button>
+					{/if}
+				{/if}
+				<button
+					class="btn btn-circle btn-ghost btn-xs"
+					onclick={() => toasts.dismiss(toast.id)}
+					aria-label="Dismiss"
+				>
+					<X class="h-4 w-4" />
+				</button>
+			</div>
+		</div>
+	{/each}
+</div>

@@ -1,0 +1,564 @@
+<script lang="ts">
+	import { X, Loader2, CheckCircle2, XCircle, FolderOpen } from 'lucide-svelte';
+	import type {
+		DownloadClient,
+		DownloadClientFormData,
+		DownloadClientImplementation,
+		DownloadClientDefinition,
+		ConnectionTestResult
+	} from '$lib/types/downloadClient';
+	import FolderBrowser from '$lib/components/FolderBrowser.svelte';
+	import { SectionHeader, ToggleSetting, TestResult } from '$lib/components/ui/modal';
+
+	// Available download client definitions
+	const clientDefinitions: DownloadClientDefinition[] = [
+		{
+			id: 'qbittorrent',
+			name: 'qBittorrent',
+			description: 'Popular open-source BitTorrent client with web interface',
+			defaultPort: 8080,
+			protocol: 'torrent',
+			supportsCategories: true,
+			supportsPriority: true,
+			supportsSeedingLimits: true
+		},
+		{
+			id: 'transmission',
+			name: 'Transmission',
+			description: 'Lightweight, cross-platform BitTorrent client',
+			defaultPort: 9091,
+			protocol: 'torrent',
+			supportsCategories: false,
+			supportsPriority: true,
+			supportsSeedingLimits: true
+		},
+		{
+			id: 'deluge',
+			name: 'Deluge',
+			description: 'Feature-rich BitTorrent client with plugin support',
+			defaultPort: 8112,
+			protocol: 'torrent',
+			supportsCategories: true,
+			supportsPriority: true,
+			supportsSeedingLimits: true
+		},
+		{
+			id: 'rtorrent',
+			name: 'rTorrent',
+			description: 'Text-based ncurses BitTorrent client (ruTorrent web UI)',
+			defaultPort: 8080,
+			protocol: 'torrent',
+			supportsCategories: true,
+			supportsPriority: false,
+			supportsSeedingLimits: true
+		},
+		{
+			id: 'aria2',
+			name: 'aria2',
+			description: 'Lightweight multi-protocol download utility',
+			defaultPort: 6800,
+			protocol: 'torrent',
+			supportsCategories: false,
+			supportsPriority: false,
+			supportsSeedingLimits: false
+		}
+	];
+
+	interface Props {
+		open: boolean;
+		mode: 'add' | 'edit';
+		client?: DownloadClient | null;
+		saving: boolean;
+		error?: string | null;
+		onClose: () => void;
+		onSave: (data: DownloadClientFormData) => void;
+		onDelete?: () => void;
+		onTest: (data: DownloadClientFormData) => Promise<ConnectionTestResult>;
+	}
+
+	let {
+		open,
+		mode,
+		client = null,
+		saving,
+		error = null,
+		onClose,
+		onSave,
+		onDelete,
+		onTest
+	}: Props = $props();
+
+	// Form state - Implementation selection (defaults only, effect syncs from props)
+	let implementation = $state<DownloadClientImplementation | ''>('');
+
+	// Form state - Basic
+	let name = $state('');
+	let enabled = $state(true);
+	let host = $state('localhost');
+	let port = $state(8080);
+	let useSsl = $state(false);
+	let username = $state('');
+	let password = $state('');
+
+	// Form state - Categories
+	let movieCategory = $state('movies');
+	let tvCategory = $state('tv');
+
+	// Form state - Priority & State
+	let recentPriority = $state<'normal' | 'high' | 'force'>('normal');
+	let olderPriority = $state<'normal' | 'high' | 'force'>('normal');
+	let initialState = $state<'start' | 'pause' | 'force'>('start');
+
+	// Form state - Path
+	let downloadPathLocal = $state('');
+
+	// Form state - Priority order
+	let priority = $state(1);
+
+	// UI state
+	let testing = $state(false);
+	let testResult = $state<ConnectionTestResult | null>(null);
+	let showFolderBrowser = $state(false);
+
+	// Derived
+	const modalTitle = $derived(mode === 'add' ? 'Add Download Client' : 'Edit Download Client');
+	const hasPassword = $derived(client?.hasPassword ?? false);
+	const selectedDefinition = $derived(
+		implementation ? clientDefinitions.find((d) => d.id === implementation) : null
+	);
+
+	// Reset form when modal opens or client changes
+	$effect(() => {
+		if (open) {
+			implementation = client?.implementation ?? '';
+			name = client?.name ?? '';
+			enabled = client?.enabled ?? true;
+			host = client?.host ?? 'localhost';
+			port = client?.port ?? 8080;
+			useSsl = client?.useSsl ?? false;
+			username = client?.username ?? '';
+			password = '';
+			movieCategory = client?.movieCategory ?? 'movies';
+			tvCategory = client?.tvCategory ?? 'tv';
+			recentPriority = client?.recentPriority ?? 'normal';
+			olderPriority = client?.olderPriority ?? 'normal';
+			initialState = client?.initialState ?? 'start';
+			downloadPathLocal = client?.downloadPathLocal ?? '';
+			priority = client?.priority ?? 1;
+			testResult = null;
+			showFolderBrowser = false;
+		}
+	});
+
+	function handleImplementationChange(newImpl: DownloadClientImplementation) {
+		implementation = newImpl;
+		if (mode === 'add') {
+			const def = clientDefinitions.find((d) => d.id === newImpl);
+			if (def) {
+				port = def.defaultPort;
+				name = def.name;
+			}
+		}
+	}
+
+	function getFormData(): DownloadClientFormData {
+		return {
+			name,
+			implementation: implementation as DownloadClientImplementation,
+			enabled,
+			host,
+			port,
+			useSsl,
+			username: username || null,
+			password: password || null,
+			movieCategory,
+			tvCategory,
+			recentPriority,
+			olderPriority,
+			initialState,
+			seedRatioLimit: null,
+			seedTimeLimit: null,
+			downloadPathLocal: downloadPathLocal || null,
+			priority
+		};
+	}
+
+	async function handleTest() {
+		testing = true;
+		testResult = null;
+		try {
+			testResult = await onTest(getFormData());
+		} finally {
+			testing = false;
+		}
+	}
+
+	function handleSave() {
+		onSave(getFormData());
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (showFolderBrowser) {
+				showFolderBrowser = false;
+			} else {
+				onClose();
+			}
+		}
+	}
+
+	function handleFolderSelect(path: string) {
+		downloadPathLocal = path;
+		showFolderBrowser = false;
+	}
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+{#if open}
+	<div class="modal-open modal">
+		<div class="modal-box max-h-[90vh] max-w-3xl overflow-y-auto">
+			<!-- Header -->
+			<div class="mb-6 flex items-center justify-between">
+				<h3 class="text-xl font-bold">{modalTitle}</h3>
+				<button class="btn btn-circle btn-ghost btn-sm" onclick={onClose}>
+					<X class="h-4 w-4" />
+				</button>
+			</div>
+
+			<!-- Client Type Selection (only in add mode when not selected) -->
+			{#if mode === 'add' && !implementation}
+				<div class="space-y-4">
+					<p class="text-base-content/70">Select the type of download client you want to add:</p>
+
+					<div class="grid grid-cols-2 gap-3">
+						{#each clientDefinitions as def (def.id)}
+							<button
+								type="button"
+								class="card cursor-pointer border-2 border-transparent bg-base-200 text-left transition-all hover:border-primary hover:bg-primary/10"
+								onclick={() => handleImplementationChange(def.id)}
+							>
+								<div class="card-body p-4">
+									<div class="flex items-start justify-between gap-2">
+										<div class="flex-1">
+											<h3 class="font-semibold">{def.name}</h3>
+											<p class="mt-1 text-sm text-base-content/60">{def.description}</p>
+										</div>
+										<div class="badge badge-outline badge-sm">:{def.defaultPort}</div>
+									</div>
+								</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<div class="modal-action">
+					<button class="btn btn-ghost" onclick={onClose}>Cancel</button>
+				</div>
+			{:else}
+				<!-- Selected client header (in add mode) -->
+				{#if mode === 'add' && selectedDefinition}
+					<div class="mb-6 flex items-center justify-between rounded-lg bg-base-200 px-4 py-3">
+						<div class="flex items-center gap-3">
+							<div class="font-semibold">{selectedDefinition.name}</div>
+							<div class="badge badge-ghost badge-sm">Port {selectedDefinition.defaultPort}</div>
+						</div>
+						<button
+							type="button"
+							class="btn btn-ghost btn-sm"
+							onclick={() => (implementation = '')}
+						>
+							Change Type
+						</button>
+					</div>
+				{/if}
+
+				<!-- Folder Browser Overlay -->
+				{#if showFolderBrowser}
+					<div class="mb-6">
+						<FolderBrowser
+							value={downloadPathLocal || '/'}
+							onSelect={handleFolderSelect}
+							onCancel={() => (showFolderBrowser = false)}
+						/>
+					</div>
+				{:else}
+					<!-- Main Form - Two Column Layout -->
+					<div class="grid grid-cols-2 gap-6">
+						<!-- Left Column: Connection -->
+						<div class="space-y-4">
+							<SectionHeader title="Connection" />
+
+							<div class="form-control">
+								<label class="label py-1" for="name">
+									<span class="label-text">Name</span>
+								</label>
+								<input
+									id="name"
+									type="text"
+									class="input-bordered input input-sm"
+									bind:value={name}
+									placeholder={selectedDefinition?.name ?? 'My Download Client'}
+								/>
+							</div>
+
+							<div class="grid grid-cols-2 gap-3">
+								<div class="form-control">
+									<label class="label py-1" for="host">
+										<span class="label-text">Host</span>
+									</label>
+									<input
+										id="host"
+										type="text"
+										class="input-bordered input input-sm"
+										bind:value={host}
+										placeholder="localhost"
+									/>
+								</div>
+
+								<div class="form-control">
+									<label class="label py-1" for="port">
+										<span class="label-text">Port</span>
+									</label>
+									<input
+										id="port"
+										type="number"
+										class="input-bordered input input-sm"
+										bind:value={port}
+										min="1"
+										max="65535"
+									/>
+								</div>
+							</div>
+
+							<div class="grid grid-cols-2 gap-3">
+								<div class="form-control">
+									<label class="label py-1" for="username">
+										<span class="label-text">Username</span>
+									</label>
+									<input
+										id="username"
+										type="text"
+										class="input-bordered input input-sm"
+										bind:value={username}
+										placeholder="admin"
+									/>
+								</div>
+
+								<div class="form-control">
+									<label class="label py-1" for="password">
+										<span class="label-text">
+											Password
+											{#if mode === 'edit' && hasPassword}
+												<span class="text-xs opacity-50">(blank to keep)</span>
+											{/if}
+										</span>
+									</label>
+									<input
+										id="password"
+										type="password"
+										class="input-bordered input input-sm"
+										bind:value={password}
+										placeholder={mode === 'edit' && hasPassword ? '********' : ''}
+									/>
+								</div>
+							</div>
+
+							<div class="flex gap-4">
+								<label class="label cursor-pointer gap-2">
+									<input type="checkbox" class="checkbox checkbox-sm" bind:checked={useSsl} />
+									<span class="label-text">Use SSL</span>
+								</label>
+
+								<label class="label cursor-pointer gap-2">
+									<input type="checkbox" class="checkbox checkbox-sm" bind:checked={enabled} />
+									<span class="label-text">Enabled</span>
+								</label>
+							</div>
+						</div>
+
+						<!-- Right Column: Settings -->
+						<div class="space-y-4">
+							<!-- Categories (if supported) -->
+							{#if selectedDefinition?.supportsCategories}
+								<SectionHeader title="Categories" />
+
+								<div class="grid grid-cols-2 gap-3">
+									<div class="form-control">
+										<label class="label py-1" for="movieCategory">
+											<span class="label-text">Movies</span>
+										</label>
+										<input
+											id="movieCategory"
+											type="text"
+											class="input-bordered input input-sm"
+											bind:value={movieCategory}
+											placeholder="movies"
+										/>
+									</div>
+
+									<div class="form-control">
+										<label class="label py-1" for="tvCategory">
+											<span class="label-text">TV Shows</span>
+										</label>
+										<input
+											id="tvCategory"
+											type="text"
+											class="input-bordered input input-sm"
+											bind:value={tvCategory}
+											placeholder="tv"
+										/>
+									</div>
+								</div>
+							{/if}
+
+							<!-- Priority & Initial State (if supported) -->
+							{#if selectedDefinition?.supportsPriority}
+								<SectionHeader
+									title="Download Behavior"
+									class={selectedDefinition?.supportsCategories ? 'mt-4' : ''}
+								/>
+
+								<div class="grid grid-cols-3 gap-3">
+									<div class="form-control">
+										<label class="label py-1" for="recentPriority">
+											<span class="label-text text-xs">Recent</span>
+										</label>
+										<select
+											id="recentPriority"
+											class="select-bordered select select-sm"
+											bind:value={recentPriority}
+										>
+											<option value="normal">Normal</option>
+											<option value="high">High</option>
+											<option value="force">Force</option>
+										</select>
+									</div>
+
+									<div class="form-control">
+										<label class="label py-1" for="olderPriority">
+											<span class="label-text text-xs">Older</span>
+										</label>
+										<select
+											id="olderPriority"
+											class="select-bordered select select-sm"
+											bind:value={olderPriority}
+										>
+											<option value="normal">Normal</option>
+											<option value="high">High</option>
+											<option value="force">Force</option>
+										</select>
+									</div>
+
+									<div class="form-control">
+										<label class="label py-1" for="initialState">
+											<span class="label-text text-xs">Start As</span>
+										</label>
+										<select
+											id="initialState"
+											class="select-bordered select select-sm"
+											bind:value={initialState}
+										>
+											<option value="start">Start</option>
+											<option value="pause">Paused</option>
+											<option value="force">Force</option>
+										</select>
+									</div>
+								</div>
+							{/if}
+
+							<!-- Path Mapping -->
+							<SectionHeader title="Path Mapping" class="mt-4" />
+
+							<div class="form-control">
+								<label class="label py-1" for="downloadPathLocal">
+									<span class="label-text">Local Download Path</span>
+								</label>
+								<div class="join w-full">
+									<input
+										id="downloadPathLocal"
+										type="text"
+										class="input-bordered input input-sm join-item flex-1"
+										bind:value={downloadPathLocal}
+										placeholder="/path/to/downloads"
+									/>
+									<button
+										type="button"
+										class="btn join-item border border-base-300 btn-ghost btn-sm"
+										onclick={() => (showFolderBrowser = true)}
+										title="Browse folders"
+									>
+										<FolderOpen class="h-4 w-4" />
+									</button>
+								</div>
+								<div class="label py-1">
+									<span class="label-text-alt text-xs">
+										Where downloads appear on THIS server (may differ from client's view)
+									</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Save Error -->
+					{#if error}
+						<div class="mt-6 alert alert-error">
+							<XCircle class="h-5 w-5" />
+							<div>
+								<div class="font-medium">Failed to save</div>
+								<div class="text-sm opacity-80">{error}</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Test Result -->
+					<TestResult
+						result={testResult}
+						successDetails={testResult?.details
+							? `Version: ${testResult.details.version} (API ${testResult.details.apiVersion})${testResult.details.savePath ? ` | Save Path: ${testResult.details.savePath}` : ''}`
+							: undefined}
+					/>
+				{/if}
+
+				<!-- Actions -->
+				{#if !showFolderBrowser}
+					<div class="modal-action">
+						{#if mode === 'edit' && onDelete}
+							<button class="btn mr-auto btn-outline btn-error" onclick={onDelete}>Delete</button>
+						{/if}
+
+						<button
+							class="btn btn-ghost"
+							onclick={handleTest}
+							disabled={testing || saving || !host || !name || !implementation}
+						>
+							{#if testing}
+								<Loader2 class="h-4 w-4 animate-spin" />
+							{/if}
+							Test
+						</button>
+
+						<button class="btn btn-ghost" onclick={onClose}>Cancel</button>
+
+						<button
+							class="btn btn-primary"
+							onclick={handleSave}
+							disabled={saving || !host || !name || !implementation}
+						>
+							{#if saving}
+								<Loader2 class="h-4 w-4 animate-spin" />
+							{/if}
+							Save
+						</button>
+					</div>
+				{/if}
+			{/if}
+		</div>
+		<button
+			type="button"
+			class="modal-backdrop cursor-default border-none bg-black/50"
+			onclick={onClose}
+			aria-label="Close modal"
+		></button>
+	</div>
+{/if}

@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1765070375344,
+      "tag": "0000_0000_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1733702400000,
+      "tag": "0001_add_allowed_protocols",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1765250401705,
+      "tag": "0002_amused_wrecking_crew",
+      "breakpoints": true
+    }
+  ]
+}

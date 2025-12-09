@@ -1,0 +1,54 @@
+import { tmdb } from '$lib/server/tmdb';
+import { error } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+import { logger } from '$lib/logging';
+import { enrichWithLibraryStatus, getLibraryStatus } from '$lib/server/library/status';
+
+export const load: PageServerLoad = async ({ params }) => {
+	const id = parseInt(params.id);
+	if (isNaN(id)) {
+		throw error(400, 'Invalid TV Show ID');
+	}
+
+	try {
+		const tv = await tmdb.getTVShow(id);
+
+		// Get library status for the TV show itself
+		const tvStatus = await getLibraryStatus([id], 'tv');
+		const tvWithStatus = {
+			...tv,
+			inLibrary: tvStatus[id]?.inLibrary ?? false,
+			hasFile: tvStatus[id]?.hasFile ?? false,
+			libraryId: tvStatus[id]?.libraryId
+		};
+
+		// Enrich recommendations and similar with library status
+		const [enrichedRecommendations, enrichedSimilar] = await Promise.all([
+			tv.recommendations?.results
+				? enrichWithLibraryStatus(tv.recommendations.results, 'tv')
+				: Promise.resolve([]),
+			tv.similar?.results ? enrichWithLibraryStatus(tv.similar.results, 'tv') : Promise.resolve([])
+		]);
+
+		// Update tv object with enriched data
+		if (tvWithStatus.recommendations) {
+			tvWithStatus.recommendations = {
+				...tvWithStatus.recommendations,
+				results: enrichedRecommendations
+			};
+		}
+		if (tvWithStatus.similar) {
+			tvWithStatus.similar = {
+				...tvWithStatus.similar,
+				results: enrichedSimilar
+			};
+		}
+
+		return {
+			tv: tvWithStatus
+		};
+	} catch (e) {
+		logger.error('Failed to fetch TV show', e, { tvShowId: id });
+		throw error(404, 'TV Show not found');
+	}
+};

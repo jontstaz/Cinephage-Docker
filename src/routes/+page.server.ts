@@ -1,0 +1,221 @@
+import type { PageServerLoad } from './$types';
+import { db } from '$lib/server/db';
+import {
+	movies,
+	series,
+	episodes,
+	downloadQueue,
+	downloadHistory,
+	monitoringHistory,
+	unmatchedFiles
+} from '$lib/server/db/schema';
+import { count, eq, desc, and, not, inArray, sql, gte } from 'drizzle-orm';
+import { logger } from '$lib/logging';
+
+/**
+ * Terminal download statuses (items that are done processing)
+ */
+const TERMINAL_STATUSES = ['imported', 'removed'];
+
+export const load: PageServerLoad = async () => {
+	try {
+		// Get library stats
+		const [movieStats] = await db
+			.select({
+				total: count(),
+				withFile: count(sql`CASE WHEN ${movies.hasFile} = 1 THEN 1 END`),
+				monitored: count(sql`CASE WHEN ${movies.monitored} = 1 THEN 1 END`)
+			})
+			.from(movies);
+
+		const [seriesStats] = await db
+			.select({
+				total: count(),
+				monitored: count(sql`CASE WHEN ${series.monitored} = 1 THEN 1 END`)
+			})
+			.from(series);
+
+		const [episodeStats] = await db
+			.select({
+				total: count(),
+				withFile: count(sql`CASE WHEN ${episodes.hasFile} = 1 THEN 1 END`),
+				monitored: count(sql`CASE WHEN ${episodes.monitored} = 1 THEN 1 END`)
+			})
+			.from(episodes);
+
+		// Get active download count (non-terminal status)
+		const [activeDownloads] = await db
+			.select({ count: count() })
+			.from(downloadQueue)
+			.where(not(inArray(downloadQueue.status, TERMINAL_STATUSES)));
+
+		// Get unmatched files count
+		const [unmatchedCount] = await db.select({ count: count() }).from(unmatchedFiles);
+
+		// Get recent activity - downloads and monitoring combined
+		const recentDownloads = await db
+			.select({
+				id: downloadHistory.id,
+				title: downloadHistory.title,
+				status: downloadHistory.status,
+				movieId: downloadHistory.movieId,
+				seriesId: downloadHistory.seriesId,
+				quality: downloadHistory.quality,
+				createdAt: downloadHistory.createdAt
+			})
+			.from(downloadHistory)
+			.orderBy(desc(downloadHistory.createdAt))
+			.limit(10);
+
+		const recentMonitoring = await db
+			.select({
+				id: monitoringHistory.id,
+				taskType: monitoringHistory.taskType,
+				status: monitoringHistory.status,
+				movieId: monitoringHistory.movieId,
+				seriesId: monitoringHistory.seriesId,
+				releaseGrabbed: monitoringHistory.releaseGrabbed,
+				releasesFound: monitoringHistory.releasesFound,
+				executedAt: monitoringHistory.executedAt
+			})
+			.from(monitoringHistory)
+			.orderBy(desc(monitoringHistory.executedAt))
+			.limit(10);
+
+		// Get recently added to library
+		const recentlyAddedMovies = await db
+			.select({
+				id: movies.id,
+				tmdbId: movies.tmdbId,
+				title: movies.title,
+				year: movies.year,
+				posterPath: movies.posterPath,
+				hasFile: movies.hasFile,
+				added: movies.added
+			})
+			.from(movies)
+			.orderBy(desc(movies.added))
+			.limit(6);
+
+		const recentlyAddedSeries = await db
+			.select({
+				id: series.id,
+				tmdbId: series.tmdbId,
+				title: series.title,
+				year: series.year,
+				posterPath: series.posterPath,
+				episodeFileCount: series.episodeFileCount,
+				episodeCount: series.episodeCount,
+				added: series.added
+			})
+			.from(series)
+			.orderBy(desc(series.added))
+			.limit(6);
+
+		// Get upcoming/missing episodes (aired but no file, for monitored series)
+		const today = new Date().toISOString().split('T')[0];
+		const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+			.toISOString()
+			.split('T')[0];
+
+		const missingEpisodes = await db
+			.select({
+				id: episodes.id,
+				seriesId: episodes.seriesId,
+				seasonNumber: episodes.seasonNumber,
+				episodeNumber: episodes.episodeNumber,
+				title: episodes.title,
+				airDate: episodes.airDate
+			})
+			.from(episodes)
+			.innerJoin(series, eq(episodes.seriesId, series.id))
+			.where(
+				and(
+					eq(episodes.monitored, true),
+					eq(episodes.hasFile, false),
+					eq(series.monitored, true),
+					gte(episodes.airDate, thirtyDaysAgo),
+					sql`${episodes.airDate} <= ${today}`
+				)
+			)
+			.orderBy(desc(episodes.airDate))
+			.limit(10);
+
+		// Enrich missing episodes with series info
+		const seriesIds = [...new Set(missingEpisodes.map((e) => e.seriesId))];
+		const seriesInfo =
+			seriesIds.length > 0
+				? await db
+						.select({
+							id: series.id,
+							title: series.title,
+							posterPath: series.posterPath
+						})
+						.from(series)
+						.where(inArray(series.id, seriesIds))
+				: [];
+
+		const seriesMap = new Map(seriesInfo.map((s) => [s.id, s]));
+
+		const missingEpisodesWithSeries = missingEpisodes.map((ep) => ({
+			...ep,
+			series: seriesMap.get(ep.seriesId) || null
+		}));
+
+		return {
+			stats: {
+				movies: {
+					total: movieStats?.total || 0,
+					withFile: movieStats?.withFile || 0,
+					missing: (movieStats?.total || 0) - (movieStats?.withFile || 0),
+					monitored: movieStats?.monitored || 0
+				},
+				series: {
+					total: seriesStats?.total || 0,
+					monitored: seriesStats?.monitored || 0
+				},
+				episodes: {
+					total: episodeStats?.total || 0,
+					withFile: episodeStats?.withFile || 0,
+					missing: (episodeStats?.total || 0) - (episodeStats?.withFile || 0),
+					monitored: episodeStats?.monitored || 0
+				},
+				activeDownloads: activeDownloads?.count || 0,
+				unmatchedFiles: unmatchedCount?.count || 0
+			},
+			recentActivity: {
+				downloads: recentDownloads,
+				monitoring: recentMonitoring
+			},
+			recentlyAdded: {
+				movies: recentlyAddedMovies,
+				series: recentlyAddedSeries
+			},
+			missingEpisodes: missingEpisodesWithSeries
+		};
+	} catch (error) {
+		logger.error(
+			'[Dashboard] Error loading dashboard data',
+			error instanceof Error ? error : undefined
+		);
+		return {
+			stats: {
+				movies: { total: 0, withFile: 0, missing: 0, monitored: 0 },
+				series: { total: 0, monitored: 0 },
+				episodes: { total: 0, withFile: 0, missing: 0, monitored: 0 },
+				activeDownloads: 0,
+				unmatchedFiles: 0
+			},
+			recentActivity: {
+				downloads: [],
+				monitoring: []
+			},
+			recentlyAdded: {
+				movies: [],
+				series: []
+			},
+			missingEpisodes: [],
+			error: 'Failed to load dashboard data'
+		};
+	}
+};

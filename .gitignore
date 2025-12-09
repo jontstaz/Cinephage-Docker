@@ -1,0 +1,63 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# SQLite
+*.db
+
+# Logs
+logs/
+*.log
+
+# Claude Code local settings
+.claude/
+
+# Backup files
+*.bak
+*.backup
+
+# Reference/inspiration repos (local only)
+Inspiration/
+
+# Additional IDE/Editor files
+.idea/
+*.swp
+*.swo
+*~
+
+# Additional database patterns
+*.sqlite
+*.sqlite3
+
+# Temporary directories
+tmp/
+temp/
+.tmp/
+
+# Build artifacts
+dist/
+*.tsbuildinfo
+
+# Local environment overrides
+.env.local
+.env.*.local

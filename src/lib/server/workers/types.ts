@@ -1,0 +1,160 @@
+/**
+ * Worker System Types
+ * Defines the core types for the task worker infrastructure.
+ */
+
+import type { LogCategory } from '$lib/logging';
+
+/**
+ * Types of workers supported by the system.
+ */
+export type WorkerType = 'stream' | 'import' | 'scan' | 'monitoring';
+
+/**
+ * Worker lifecycle status.
+ */
+export type WorkerStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+/**
+ * A single log entry from a worker.
+ */
+export interface WorkerLogEntry {
+	timestamp: Date;
+	level: 'debug' | 'info' | 'warn' | 'error';
+	message: string;
+	data?: Record<string, unknown>;
+}
+
+/**
+ * Base worker state exposed via API.
+ */
+export interface WorkerState {
+	id: string;
+	type: WorkerType;
+	status: WorkerStatus;
+	progress: number;
+	createdAt: Date;
+	startedAt?: Date;
+	completedAt?: Date;
+	error?: string;
+	metadata: Record<string, unknown>;
+}
+
+/**
+ * Configuration for the worker manager.
+ */
+export interface WorkerManagerConfig {
+	/**
+	 * Maximum concurrent workers per type.
+	 * Set to 0 for unlimited.
+	 */
+	maxConcurrent: Record<WorkerType, number>;
+
+	/**
+	 * How long to keep completed workers before auto-cleanup (ms).
+	 * Set to 0 to never auto-cleanup.
+	 */
+	cleanupAfterMs: number;
+
+	/**
+	 * Maximum log entries to keep in memory per worker.
+	 */
+	maxLogsPerWorker: number;
+}
+
+/**
+ * Default worker configuration.
+ */
+export const DEFAULT_WORKER_CONFIG: WorkerManagerConfig = {
+	maxConcurrent: {
+		stream: parseInt(process.env.WORKER_MAX_STREAMS || '10', 10) || 10,
+		import: parseInt(process.env.WORKER_MAX_IMPORTS || '5', 10) || 5,
+		scan: parseInt(process.env.WORKER_MAX_SCANS || '2', 10) || 2,
+		monitoring: parseInt(process.env.WORKER_MAX_MONITORING || '5', 10) || 5
+	},
+	cleanupAfterMs: parseInt(process.env.WORKER_CLEANUP_MS || '1800000', 10) || 1800000, // 30 minutes
+	maxLogsPerWorker: parseInt(process.env.WORKER_MAX_LOGS || '1000', 10) || 1000
+};
+
+/**
+ * Events emitted by the worker manager.
+ */
+export type WorkerEvent =
+	| { type: 'spawned'; workerId: string; workerType: WorkerType }
+	| { type: 'started'; workerId: string }
+	| { type: 'progress'; workerId: string; progress: number }
+	| { type: 'log'; workerId: string; entry: WorkerLogEntry }
+	| { type: 'completed'; workerId: string }
+	| { type: 'failed'; workerId: string; error: string }
+	| { type: 'cancelled'; workerId: string }
+	| { type: 'removed'; workerId: string };
+
+/**
+ * Map worker type to log category.
+ */
+export function workerTypeToLogCategory(type: WorkerType): LogCategory {
+	switch (type) {
+		case 'stream':
+			return 'streams';
+		case 'import':
+			return 'imports';
+		case 'scan':
+			return 'scans';
+		case 'monitoring':
+			return 'monitoring';
+		default:
+			return 'main';
+	}
+}
+
+/**
+ * Stream worker specific metadata.
+ */
+export interface StreamWorkerMetadata {
+	mediaType: 'movie' | 'tv';
+	tmdbId: number;
+	season?: number;
+	episode?: number;
+	provider?: string;
+	quality?: string;
+	bytesProxied: number;
+	segmentCount: number;
+	sessionId?: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Import worker specific metadata.
+ */
+export interface ImportWorkerMetadata {
+	queueItemId: string;
+	mediaType: 'movie' | 'episode';
+	title: string;
+	sourcePath?: string;
+	destinationPath?: string;
+	filesProcessed: number;
+	totalFiles: number;
+	[key: string]: unknown;
+}
+
+/**
+ * Scan worker specific metadata.
+ */
+export interface ScanWorkerMetadata {
+	folderPath: string;
+	filesScanned: number;
+	newItems: number;
+	updatedItems: number;
+	[key: string]: unknown;
+}
+
+/**
+ * Monitoring worker specific metadata.
+ */
+export interface MonitoringWorkerMetadata {
+	taskType: 'missing' | 'upgrade' | 'newEpisode' | 'cutoffUnmet' | 'pendingRelease';
+	itemsProcessed: number;
+	itemsFound: number;
+	downloadsTriggered: number;
+	[key: string]: unknown;
+}

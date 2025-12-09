@@ -1,0 +1,321 @@
+/**
+ * Types for download queue and history management
+ */
+
+/**
+ * Download queue status values
+ */
+export type QueueStatus =
+	| 'queued' // Added to queue, waiting to start
+	| 'downloading' // Actively downloading
+	| 'paused' // Download paused
+	| 'completed' // Download finished, waiting for import
+	| 'importing' // Import in progress
+	| 'imported' // Successfully imported to library
+	| 'failed' // Failed (download or import)
+	| 'seeding' // Download complete, still seeding
+	| 'removed'; // Removed from queue
+
+/**
+ * Download history status values
+ */
+export type HistoryStatus = 'imported' | 'streaming' | 'failed' | 'rejected' | 'removed';
+
+/**
+ * Quality information parsed from release name
+ */
+export interface QueueQualityInfo {
+	resolution?: string;
+	source?: string;
+	codec?: string;
+	hdr?: string;
+}
+
+/**
+ * Download queue item from database
+ */
+export interface QueueItem {
+	id: string;
+	downloadClientId: string;
+	downloadId: string;
+	infoHash?: string | null;
+	title: string;
+	indexerId?: string | null;
+	indexerName?: string | null;
+	downloadUrl?: string | null;
+	magnetUrl?: string | null;
+	protocol: string;
+
+	// Linked media
+	movieId?: string | null;
+	seriesId?: string | null;
+	episodeIds?: string[] | null;
+	seasonNumber?: number | null;
+
+	// Status
+	status: QueueStatus;
+	progress: number; // 0.0 - 1.0
+	size?: number | null;
+	downloadSpeed: number;
+	uploadSpeed: number;
+	eta?: number | null;
+	ratio: number;
+
+	// Paths
+	clientDownloadPath?: string | null;
+	outputPath?: string | null;
+	importedPath?: string | null;
+
+	// Quality
+	quality?: QueueQualityInfo | null;
+
+	// Timestamps
+	addedAt: string;
+	startedAt?: string | null;
+	completedAt?: string | null;
+	importedAt?: string | null;
+
+	// Error tracking
+	errorMessage?: string | null;
+	importAttempts: number;
+	lastAttemptAt?: string | null;
+
+	// Flags
+	isAutomatic: boolean;
+	isUpgrade: boolean;
+}
+
+/**
+ * Extended queue item with related media info for UI display
+ */
+export interface QueueItemWithMedia extends QueueItem {
+	// Resolved media info
+	movie?: {
+		id: string;
+		tmdbId: number;
+		title: string;
+		year?: number | null;
+		posterPath?: string | null;
+	} | null;
+	series?: {
+		id: string;
+		tmdbId: number;
+		title: string;
+		year?: number | null;
+		posterPath?: string | null;
+	} | null;
+	// Download client info
+	downloadClient?: {
+		id: string;
+		name: string;
+		implementation: string;
+	} | null;
+}
+
+/**
+ * Download history item from database
+ */
+export interface HistoryItem {
+	id: string;
+	downloadClientId?: string | null;
+	downloadClientName?: string | null;
+	downloadId?: string | null;
+	title: string;
+	indexerId?: string | null;
+	indexerName?: string | null;
+	protocol?: string | null;
+
+	// Linked media
+	movieId?: string | null;
+	seriesId?: string | null;
+	episodeIds?: string[] | null;
+	seasonNumber?: number | null;
+
+	// Status
+	status: HistoryStatus;
+	statusReason?: string | null;
+
+	// Stats
+	size?: number | null;
+	downloadTimeSeconds?: number | null;
+	finalRatio?: string | null;
+
+	// Quality
+	quality?: QueueQualityInfo | null;
+
+	// Paths
+	importedPath?: string | null;
+
+	// Created files
+	movieFileId?: string | null;
+	episodeFileIds?: string[] | null;
+
+	// Timestamps
+	grabbedAt?: string | null;
+	completedAt?: string | null;
+	importedAt?: string | null;
+	createdAt: string;
+}
+
+/**
+ * Extended history item with related media info for UI display
+ */
+export interface HistoryItemWithMedia extends HistoryItem {
+	movie?: {
+		id: string;
+		tmdbId: number;
+		title: string;
+		year?: number | null;
+		posterPath?: string | null;
+	} | null;
+	series?: {
+		id: string;
+		tmdbId: number;
+		title: string;
+		year?: number | null;
+		posterPath?: string | null;
+	} | null;
+}
+
+/**
+ * Request payload for grabbing a release
+ */
+export interface GrabRequest {
+	// Release info
+	downloadUrl?: string;
+	magnetUrl?: string;
+	infoHash?: string;
+	title: string;
+	indexerId?: string;
+	indexerName?: string;
+	/** Protocol: 'torrent' | 'usenet' | 'streaming' */
+	protocol?: string;
+
+	// Target media (at least one required)
+	movieId?: string;
+	seriesId?: string;
+	episodeIds?: string[];
+	seasonNumber?: number;
+
+	// Media type for category selection
+	mediaType: 'movie' | 'tv';
+
+	// Quality info (parsed from release)
+	quality?: QueueQualityInfo;
+
+	// Flags
+	isAutomatic?: boolean;
+	isUpgrade?: boolean;
+	/** Force grab even if not an upgrade (bypasses upgrade validation) */
+	force?: boolean;
+}
+
+/**
+ * Response from grab endpoint
+ */
+export interface GrabResponse {
+	success: boolean;
+	data?: {
+		queueId: string;
+		hash: string;
+		clientId: string;
+		clientName: string;
+		category: string;
+		wasDuplicate?: boolean;
+		isUpgrade?: boolean;
+	};
+	error?: string;
+	/** Machine-readable rejection type for UI handling */
+	rejectionType?: string;
+	/** Upgrade decision details */
+	upgradeDecision?: {
+		upgradeStatus: 'upgrade' | 'sidegrade' | 'downgrade' | 'new' | 'blocked' | 'rejected';
+		reason?: string;
+		isUpgrade?: boolean;
+		candidateScore?: number;
+		existingScore?: number;
+		upgradeStats?: {
+			improved: number;
+			unchanged: number;
+			downgraded: number;
+			newEpisodes: number;
+			total: number;
+		};
+	};
+}
+
+/**
+ * Queue summary statistics
+ */
+export interface QueueStats {
+	totalCount: number;
+	downloadingCount: number;
+	seedingCount: number;
+	pausedCount: number;
+	completedCount: number;
+	failedCount: number;
+	totalSizeBytes: number;
+	totalDownloadSpeed: number;
+	totalUploadSpeed: number;
+}
+
+/**
+ * SSE event types for queue updates
+ */
+export type QueueEventType =
+	| 'queue:added'
+	| 'queue:updated'
+	| 'queue:removed'
+	| 'queue:completed'
+	| 'queue:imported'
+	| 'queue:failed'
+	| 'queue:stats';
+
+/**
+ * SSE event payload
+ */
+export interface QueueEvent {
+	type: QueueEventType;
+	data: QueueItem | QueueStats | { id: string };
+	timestamp: string;
+}
+
+/**
+ * Filter options for queue listing
+ */
+export interface QueueFilters {
+	status?: QueueStatus | 'all';
+	mediaType?: 'movie' | 'tv' | 'all';
+	downloadClientId?: string;
+}
+
+/**
+ * Filter options for history listing
+ */
+export interface HistoryFilters {
+	status?: HistoryStatus | 'all';
+	mediaType?: 'movie' | 'tv' | 'all';
+	movieId?: string;
+	seriesId?: string;
+	startDate?: string;
+	endDate?: string;
+}
+
+/**
+ * Pagination options
+ */
+export interface PaginationOptions {
+	page?: number;
+	limit?: number;
+}
+
+/**
+ * Paginated response
+ */
+export interface PaginatedResponse<T> {
+	items: T[];
+	total: number;
+	page: number;
+	limit: number;
+	totalPages: number;
+}

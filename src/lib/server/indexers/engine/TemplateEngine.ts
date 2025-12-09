@@ -1,0 +1,909 @@
+/**
+ * Go-style template engine for Cardigann definitions.
+ * Supports variable substitution, logic functions, conditionals, and more.
+ */
+
+import type {
+	SearchCriteria,
+	MovieSearchCriteria,
+	TvSearchCriteria,
+	MusicSearchCriteria,
+	BookSearchCriteria
+} from '../core/searchCriteria';
+import type { FilterBlock } from '../schema/yamlDefinition';
+import { createSafeRegex, safeReplace } from './safeRegex';
+import { logger } from '$lib/logging';
+
+export type TemplateVariables = Map<string, unknown>;
+
+export class TemplateEngine {
+	private variables: TemplateVariables = new Map();
+
+	// Supported logic functions
+	private static readonly LOGIC_FUNCTIONS = [
+		'and',
+		'or',
+		'eq',
+		'ne',
+		'lt',
+		'le',
+		'gt',
+		'ge',
+		'not'
+	];
+	private static readonly STRING_LITERAL_FUNCTIONS = ['eq', 'ne'];
+
+	// Regex patterns
+	private static readonly RE_REPLACE_REGEX =
+		/\{\{\s*re_replace\s+(\.[^\s]+)\s+"([^"]*)"\s+"([^"]*)"\s*\}\}/g;
+	private static readonly JOIN_REGEX = /\{\{\s*join\s+(\.[^\s]+)\s+"([^"]*)"\s*\}\}/g;
+	private static readonly IF_ELSE_REGEX =
+		/\{\{\s*if\s+(.+?)\s*\}\}(.*?)\{\{\s*else\s*\}\}(.*?)\{\{\s*end\s*\}\}/gs;
+	private static readonly IF_ONLY_REGEX = /\{\{\s*if\s+(.+?)\s*\}\}(.*?)\{\{\s*end\s*\}\}/gs;
+	private static readonly RANGE_REGEX =
+		/\{\{\s*range\s*(?:(?<index>\$[^\s,]+),\s*)?(?:(?<element>[^\s]+)\s*:=\s*)?(?<variable>\.[^\s]+)\s*\}\}(?<prefix>.*?)\{\{\s*\.\s*\}\}(?<postfix>.*?)\{\{\s*end\s*\}\}/gs;
+	// Simple variable: {{ .Variable }}
+	private static readonly SIMPLE_VARIABLE_REGEX = /\{\{\s*(\.[^\s}|]+)\s*\}\}/g;
+	// Variable with pipe filters: {{ .Variable | filter "args" | filter2 }}
+	private static readonly PIPE_VARIABLE_REGEX = /\{\{\s*(\.[^\s|]+)\s*\|([^}]+)\}\}/g;
+	private static readonly LOGIC_FUNCTION_REGEX =
+		/\b(and|or|eq|ne|lt|le|gt|ge|not)(?:\s+(\(?\.?[\w.]+\)?|"[^"]+"|[\d.]+))+/g;
+	// Index function: {{ index .Array 0 }} or {{ index .Map "key" }}
+	private static readonly INDEX_REGEX = /\{\{\s*index\s+(\.[^\s]+)\s+(\d+|"[^"]+")\s*\}\}/g;
+	// Len function: {{ len .Array }}
+	private static readonly LEN_REGEX = /\{\{\s*len\s+(\.[^\s}]+)\s*\}\}/g;
+	// Printf function: {{ printf "%s-%s" .Var1 .Var2 }}
+	private static readonly PRINTF_REGEX = /\{\{\s*printf\s+"([^"]+)"\s*([^}]*)\}\}/g;
+
+	constructor() {
+		this.initializeBaseVariables();
+	}
+
+	/**
+	 * Initialize base template variables available to all templates.
+	 */
+	private initializeBaseVariables(): void {
+		this.variables.set('.True', 'True');
+		this.variables.set('.False', null);
+		this.variables.set('.Today.Year', new Date().getFullYear().toString());
+	}
+
+	/**
+	 * Set site link in variables.
+	 */
+	setSiteLink(url: string): void {
+		this.variables.set('.Config.sitelink', url);
+	}
+
+	/**
+	 * Set user configuration settings.
+	 */
+	setConfig(settings: Record<string, unknown>): void {
+		for (const [key, value] of Object.entries(settings)) {
+			const varName = `.Config.${key}`;
+			if (typeof value === 'boolean') {
+				this.variables.set(varName, value ? '.True' : null);
+			} else {
+				this.variables.set(varName, value);
+			}
+		}
+	}
+
+	/**
+	 * Set search query variables from search criteria.
+	 */
+	setQuery(criteria: SearchCriteria): void {
+		// Reset all query variables to null first
+		this.resetQueryVariables();
+
+		// Set common variables
+		this.variables.set('.Query.Type', criteria.searchType);
+		this.variables.set('.Query.Q', criteria.query ?? null);
+		this.variables.set('.Query.Categories', criteria.categories ?? []);
+		this.variables.set('.Query.Limit', criteria.limit?.toString() ?? null);
+		this.variables.set('.Query.Offset', criteria.offset?.toString() ?? null);
+
+		// Build keywords
+		const keywordParts: string[] = [];
+		if (criteria.query) keywordParts.push(criteria.query);
+
+		// Type-specific variables
+		switch (criteria.searchType) {
+			case 'movie':
+				this.setMovieQueryVariables(criteria as MovieSearchCriteria, keywordParts);
+				break;
+			case 'tv':
+				this.setTvQueryVariables(criteria as TvSearchCriteria, keywordParts);
+				break;
+			case 'music':
+				this.setMusicQueryVariables(criteria as MusicSearchCriteria);
+				break;
+			case 'book':
+				this.setBookQueryVariables(criteria as BookSearchCriteria);
+				break;
+		}
+
+		this.variables.set('.Query.Keywords', keywordParts.join(' '));
+		this.variables.set('.Keywords', keywordParts.join(' '));
+	}
+
+	private resetQueryVariables(): void {
+		const queryVars = [
+			'Q',
+			'Keywords',
+			'Type',
+			'Categories',
+			'Limit',
+			'Offset',
+			'Extended',
+			'APIKey',
+			'Genre',
+			// Movie
+			'Movie',
+			'Year',
+			'IMDBID',
+			'IMDBIDShort',
+			'TMDBID',
+			'TraktID',
+			'DoubanID',
+			// TV
+			'Series',
+			'Ep',
+			'Season',
+			'TVDBID',
+			'TVRageID',
+			'TVMazeID',
+			'Episode',
+			// Music
+			'Album',
+			'Artist',
+			'Label',
+			'Track',
+			// Book
+			'Author',
+			'Title',
+			'Publisher'
+		];
+
+		for (const v of queryVars) {
+			this.variables.set(`.Query.${v}`, null);
+		}
+	}
+
+	private setMovieQueryVariables(criteria: MovieSearchCriteria, keywords: string[]): void {
+		if (criteria.year) {
+			this.variables.set('.Query.Year', criteria.year.toString());
+			keywords.push(criteria.year.toString());
+		}
+
+		if (criteria.imdbId) {
+			// Full IMDB ID with 'tt' prefix
+			const fullImdbId = criteria.imdbId.startsWith('tt')
+				? criteria.imdbId
+				: `tt${criteria.imdbId}`;
+			this.variables.set('.Query.IMDBID', fullImdbId);
+			// Short IMDB ID without 'tt' prefix
+			this.variables.set('.Query.IMDBIDShort', criteria.imdbId.replace(/^tt/, ''));
+		}
+
+		if (criteria.tmdbId) {
+			this.variables.set('.Query.TMDBID', criteria.tmdbId.toString());
+		}
+
+		if (criteria.traktId) {
+			this.variables.set('.Query.TraktID', criteria.traktId.toString());
+		}
+	}
+
+	private setTvQueryVariables(criteria: TvSearchCriteria, keywords: string[]): void {
+		if (criteria.season !== undefined) {
+			this.variables.set('.Query.Season', criteria.season.toString());
+		}
+
+		if (criteria.episode !== undefined) {
+			this.variables.set('.Query.Ep', criteria.episode.toString());
+			// Episode search string like "S01E02"
+			const seasonStr = criteria.season?.toString().padStart(2, '0') ?? '01';
+			const epStr = criteria.episode.toString().padStart(2, '0');
+			this.variables.set('.Query.Episode', `S${seasonStr}E${epStr}`);
+			keywords.push(`S${seasonStr}E${epStr}`);
+		}
+
+		if (criteria.year) {
+			this.variables.set('.Query.Year', criteria.year.toString());
+		}
+
+		if (criteria.imdbId) {
+			const fullImdbId = criteria.imdbId.startsWith('tt')
+				? criteria.imdbId
+				: `tt${criteria.imdbId}`;
+			this.variables.set('.Query.IMDBID', fullImdbId);
+			this.variables.set('.Query.IMDBIDShort', criteria.imdbId.replace(/^tt/, ''));
+		}
+
+		if (criteria.tmdbId) {
+			this.variables.set('.Query.TMDBID', criteria.tmdbId.toString());
+		}
+
+		if (criteria.tvdbId) {
+			this.variables.set('.Query.TVDBID', criteria.tvdbId.toString());
+		}
+
+		if (criteria.tvMazeId) {
+			this.variables.set('.Query.TVMazeID', criteria.tvMazeId.toString());
+		}
+
+		if (criteria.traktId) {
+			this.variables.set('.Query.TraktID', criteria.traktId.toString());
+		}
+	}
+
+	private setMusicQueryVariables(criteria: MusicSearchCriteria): void {
+		if (criteria.artist) {
+			this.variables.set('.Query.Artist', criteria.artist);
+		}
+		if (criteria.album) {
+			this.variables.set('.Query.Album', criteria.album);
+		}
+		if (criteria.year) {
+			this.variables.set('.Query.Year', criteria.year.toString());
+		}
+	}
+
+	private setBookQueryVariables(criteria: BookSearchCriteria): void {
+		if (criteria.author) {
+			this.variables.set('.Query.Author', criteria.author);
+		}
+		if (criteria.title) {
+			this.variables.set('.Query.Title', criteria.title);
+		}
+	}
+
+	/**
+	 * Set categories for the search.
+	 */
+	setCategories(categories: string[]): void {
+		this.variables.set('.Categories', categories);
+	}
+
+	/**
+	 * Set a single variable.
+	 */
+	setVariable(name: string, value: unknown): void {
+		this.variables.set(name, value);
+	}
+
+	/**
+	 * Get a variable value.
+	 */
+	getVariable(name: string): unknown {
+		return this.variables.get(name);
+	}
+
+	/**
+	 * Check if a variable exists.
+	 */
+	hasVariable(name: string): boolean {
+		return this.variables.has(name);
+	}
+
+	/**
+	 * Set row context variables from a parsed search result row.
+	 * Used during search result parsing to make row data available as .Result.xxx
+	 */
+	setRowContext(rowData: Record<string, unknown>): void {
+		for (const [key, value] of Object.entries(rowData)) {
+			this.variables.set(`.Result.${key}`, value);
+		}
+	}
+
+	/**
+	 * Clear row context variables.
+	 */
+	clearRowContext(): void {
+		const keysToDelete: string[] = [];
+		for (const key of this.variables.keys()) {
+			if (key.startsWith('.Result.')) {
+				keysToDelete.push(key);
+			}
+		}
+		for (const key of keysToDelete) {
+			this.variables.delete(key);
+		}
+	}
+
+	/**
+	 * Set multiple variables at once.
+	 */
+	setVariables(vars: Record<string, unknown>): void {
+		for (const [key, value] of Object.entries(vars)) {
+			const varName = key.startsWith('.') ? key : `.${key}`;
+			this.variables.set(varName, value);
+		}
+	}
+
+	/**
+	 * Get all variables as a plain object.
+	 */
+	getVariables(): Record<string, unknown> {
+		const obj: Record<string, unknown> = {};
+		for (const [key, value] of this.variables.entries()) {
+			obj[key] = value;
+		}
+		return obj;
+	}
+
+	/**
+	 * Expand a template string with all variable substitutions and logic.
+	 * @param template The template string to expand
+	 * @param urlEncode Optional function to encode values for URLs
+	 */
+	expand(template: string, urlEncode?: (s: string) => string): string {
+		if (!template || !template.includes('{{')) {
+			return template;
+		}
+
+		let result = template;
+
+		// Process in order:
+		// 1. re_replace expressions
+		result = this.processReReplace(result);
+
+		// 2. join expressions
+		result = this.processJoin(result, urlEncode);
+
+		// 3. index expressions (array/map access)
+		result = this.processIndex(result);
+
+		// 4. len expressions (array length)
+		result = this.processLen(result);
+
+		// 5. printf expressions (string formatting)
+		result = this.processPrintf(result, urlEncode);
+
+		// 6. Logic functions (and, or, eq, ne, lt, gt, etc.)
+		result = this.processLogicFunctions(result);
+
+		// 7. if...else...end conditionals
+		result = this.processIfElse(result);
+
+		// 8. if...end (no else) conditionals
+		result = this.processIfOnly(result);
+
+		// 9. range loops
+		result = this.processRange(result, urlEncode);
+
+		// 10. Simple variable substitutions
+		result = this.processVariables(result, urlEncode);
+
+		return result;
+	}
+
+	/**
+	 * Process {{ re_replace .Var "pattern" "replacement" }} expressions.
+	 * Uses safe regex to prevent ReDoS attacks from malicious patterns.
+	 */
+	private processReReplace(template: string): string {
+		return template.replace(
+			TemplateEngine.RE_REPLACE_REGEX,
+			(match, variable, pattern, replacement) => {
+				const value = this.getVariableAsString(variable);
+				if (value === null) return '';
+
+				// Use safe regex creation to prevent ReDoS
+				const regex = createSafeRegex(pattern, 'g');
+				if (!regex) {
+					// Pattern was invalid or dangerous, return original value
+					return value;
+				}
+
+				return safeReplace(value, regex, replacement);
+			}
+		);
+	}
+
+	/**
+	 * Process {{ join .Array "," }} expressions.
+	 */
+	private processJoin(template: string, urlEncode?: (s: string) => string): string {
+		return template.replace(TemplateEngine.JOIN_REGEX, (match, variable, delimiter) => {
+			const value = this.variables.get(variable);
+			if (!Array.isArray(value)) return '';
+
+			let items = value.map(String);
+			if (urlEncode) {
+				items = items.map(urlEncode);
+			}
+			return items.join(delimiter);
+		});
+	}
+
+	/**
+	 * Process {{ index .Array 0 }} or {{ index .Map "key" }} expressions.
+	 */
+	private processIndex(template: string): string {
+		return template.replace(TemplateEngine.INDEX_REGEX, (match, variable, indexOrKey) => {
+			const value = this.variables.get(variable);
+			if (value === null || value === undefined) return '';
+
+			// Handle array index (numeric)
+			if (/^\d+$/.test(indexOrKey)) {
+				const idx = parseInt(indexOrKey, 10);
+				if (Array.isArray(value)) {
+					return value[idx] !== undefined ? String(value[idx]) : '';
+				}
+				// String index (nth character)
+				if (typeof value === 'string') {
+					return value[idx] ?? '';
+				}
+			}
+
+			// Handle map key (quoted string)
+			if (indexOrKey.startsWith('"') && indexOrKey.endsWith('"')) {
+				const key = indexOrKey.slice(1, -1);
+				if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+					const mapValue = (value as Record<string, unknown>)[key];
+					return mapValue !== undefined ? String(mapValue) : '';
+				}
+			}
+
+			return '';
+		});
+	}
+
+	/**
+	 * Process {{ len .Array }} expressions.
+	 */
+	private processLen(template: string): string {
+		return template.replace(TemplateEngine.LEN_REGEX, (match, variable) => {
+			const value = this.variables.get(variable);
+			if (Array.isArray(value)) {
+				return value.length.toString();
+			}
+			if (typeof value === 'string') {
+				return value.length.toString();
+			}
+			if (typeof value === 'object' && value !== null) {
+				return Object.keys(value).length.toString();
+			}
+			return '0';
+		});
+	}
+
+	/**
+	 * Process {{ printf "%s-%s" .Var1 .Var2 }} expressions.
+	 */
+	private processPrintf(template: string, urlEncode?: (s: string) => string): string {
+		return template.replace(TemplateEngine.PRINTF_REGEX, (match, format, argsStr) => {
+			// Parse arguments from the string
+			const argParts = argsStr.trim().split(/\s+/).filter(Boolean);
+			const values: string[] = [];
+
+			for (const arg of argParts) {
+				if (arg.startsWith('.')) {
+					let value = this.getVariableAsString(arg);
+					if (value === null) value = '';
+					if (urlEncode) value = urlEncode(value);
+					values.push(value);
+				} else if (arg.startsWith('"') && arg.endsWith('"')) {
+					values.push(arg.slice(1, -1));
+				} else {
+					values.push(arg);
+				}
+			}
+
+			// Simple printf implementation supporting %s, %d, %v
+			let result = format;
+			let valueIndex = 0;
+			result = result.replace(/%[sdvq]/g, (specifier: string) => {
+				const val = values[valueIndex++] ?? '';
+				switch (specifier) {
+					case '%d':
+						return String(parseInt(val, 10) || 0);
+					case '%q':
+						return JSON.stringify(val);
+					case '%s':
+					case '%v':
+					default:
+						return val;
+				}
+			});
+
+			return result;
+		});
+	}
+
+	/**
+	 * Process logic functions: and, or, eq, ne, lt, le, gt, ge, not.
+	 */
+	private processLogicFunctions(template: string): string {
+		let result = template;
+		let match;
+
+		// Keep processing until no more matches (handles nested functions)
+		while ((match = TemplateEngine.LOGIC_FUNCTION_REGEX.exec(result)) !== null) {
+			const fullMatch = match[0];
+			const functionName = match[1];
+			const startIndex = match.index;
+
+			// Extract parameters (variables, string literals, or numbers)
+			const paramRegex = /(\(?\.?[\w.]+\)?|"[^"]+"|[\d.]+)/g;
+			const params: string[] = [];
+			let paramMatch;
+			const restOfMatch = fullMatch.substring(functionName.length);
+
+			while ((paramMatch = paramRegex.exec(restOfMatch)) !== null) {
+				params.push(paramMatch[1].replace(/^\(|\)$/g, '')); // Remove optional parens
+			}
+
+			let functionResult = '';
+
+			switch (functionName) {
+				case 'and': {
+					// Returns first null/empty, else last variable
+					for (const param of params) {
+						functionResult = param;
+						const value = this.resolveParamValue(param);
+						if (!value || (typeof value === 'string' && value.trim() === '')) {
+							break;
+						}
+					}
+					break;
+				}
+				case 'or': {
+					// Returns first not null/empty, else last variable
+					for (const param of params) {
+						functionResult = param;
+						const value = this.resolveParamValue(param);
+						if (value && (typeof value !== 'string' || value.trim() !== '')) {
+							break;
+						}
+					}
+					break;
+				}
+				case 'not': {
+					// Negation: returns .True if value is falsy, .False otherwise
+					const param = params[0];
+					const value = this.resolveParamValue(param);
+					const isFalsy = !value || (typeof value === 'string' && value.trim() === '');
+					functionResult = isFalsy ? '.True' : '.False';
+					break;
+				}
+				case 'eq':
+				case 'ne': {
+					// Compare first two params
+					const [param1, param2] = params.slice(0, 2);
+					const value1 = this.resolveParamValue(param1);
+					const value2 = this.resolveParamValue(param2);
+					const isEqual = String(value1 ?? '') === String(value2 ?? '');
+					functionResult = (functionName === 'eq' ? isEqual : !isEqual) ? '.True' : '.False';
+					break;
+				}
+				case 'lt':
+				case 'le':
+				case 'gt':
+				case 'ge': {
+					// Numeric comparisons
+					const [param1, param2] = params.slice(0, 2);
+					const num1 = parseFloat(String(this.resolveParamValue(param1) ?? '0'));
+					const num2 = parseFloat(String(this.resolveParamValue(param2) ?? '0'));
+					let compResult = false;
+					switch (functionName) {
+						case 'lt':
+							compResult = num1 < num2;
+							break;
+						case 'le':
+							compResult = num1 <= num2;
+							break;
+						case 'gt':
+							compResult = num1 > num2;
+							break;
+						case 'ge':
+							compResult = num1 >= num2;
+							break;
+					}
+					functionResult = compResult ? '.True' : '.False';
+					break;
+				}
+			}
+
+			result =
+				result.substring(0, startIndex) +
+				functionResult +
+				result.substring(startIndex + fullMatch.length);
+			TemplateEngine.LOGIC_FUNCTION_REGEX.lastIndex = 0; // Reset for next iteration
+		}
+
+		return result;
+	}
+
+	/**
+	 * Resolve a parameter value (variable or string literal).
+	 */
+	private resolveParamValue(param: string): unknown {
+		if (param.startsWith('"') && param.endsWith('"')) {
+			return param.slice(1, -1); // String literal
+		}
+		return this.variables.get(param);
+	}
+
+	/**
+	 * Process {{ if .Condition }}...{{ else }}...{{ end }} conditionals.
+	 */
+	private processIfElse(template: string): string {
+		return template.replace(TemplateEngine.IF_ELSE_REGEX, (match, condition, onTrue, onFalse) => {
+			const conditionValue = this.evaluateCondition(condition.trim());
+			return conditionValue ? onTrue : onFalse;
+		});
+	}
+
+	/**
+	 * Process {{ if .Condition }}...{{ end }} (no else) conditionals.
+	 */
+	private processIfOnly(template: string): string {
+		return template.replace(TemplateEngine.IF_ONLY_REGEX, (match, condition, content) => {
+			const conditionValue = this.evaluateCondition(condition.trim());
+			return conditionValue ? content : '';
+		});
+	}
+
+	/**
+	 * Evaluate a condition (variable name starting with dot, or resolved logic value).
+	 */
+	private evaluateCondition(condition: string): boolean {
+		// Handle already-resolved boolean markers
+		if (condition === '.True' || condition === 'True') {
+			return true;
+		}
+		if (condition === '.False' || condition === 'False' || condition === '') {
+			return false;
+		}
+
+		// Handle negation: not .Variable
+		if (condition.startsWith('not ')) {
+			const inner = condition.substring(4).trim();
+			return !this.evaluateCondition(inner);
+		}
+
+		// Variable lookup
+		if (!condition.startsWith('.')) {
+			// Could be a literal or already evaluated
+			return condition.trim() !== '';
+		}
+
+		const value = this.variables.get(condition);
+
+		if (value === null || value === undefined) {
+			return false;
+		}
+
+		if (typeof value === 'string') {
+			// Check for boolean-like strings
+			if (value === '.True' || value === 'True' || value === 'true') return true;
+			if (value === '.False' || value === 'False' || value === 'false') return false;
+			return value.trim() !== '';
+		}
+
+		if (Array.isArray(value)) {
+			return value.length > 0;
+		}
+
+		if (typeof value === 'boolean') {
+			return value;
+		}
+
+		if (typeof value === 'number') {
+			return value !== 0;
+		}
+
+		return true;
+	}
+
+	/**
+	 * Process {{ range .Array }}...{{ . }}...{{ end }} loops.
+	 */
+	private processRange(template: string, urlEncode?: (s: string) => string): string {
+		return template.replace(TemplateEngine.RANGE_REGEX, (match) => {
+			// Extract named groups manually since JS regex named groups can be tricky
+			const rangeMatch = TemplateEngine.RANGE_REGEX.exec(match);
+			if (!rangeMatch?.groups) return '';
+
+			const { variable, prefix = '', postfix = '' } = rangeMatch.groups;
+			const index = rangeMatch.groups.index;
+
+			const arrayValue = this.variables.get(variable);
+			if (!Array.isArray(arrayValue)) return '';
+
+			const results: string[] = [];
+			arrayValue.forEach((item, i) => {
+				let value = String(item);
+				if (urlEncode) {
+					value = urlEncode(value);
+				}
+
+				let prefixStr = prefix;
+				let postfixStr = postfix;
+
+				if (index) {
+					const indexPlaceholder = `{{${index}}}`;
+					prefixStr = prefixStr.replace(indexPlaceholder, i.toString());
+					postfixStr = postfixStr.replace(indexPlaceholder, i.toString());
+				}
+
+				results.push(prefixStr + value + postfixStr);
+			});
+
+			return results.join('');
+		});
+	}
+
+	/**
+	 * Process {{ .Variable }} and {{ .Variable | filter "args" }} substitutions.
+	 */
+	private processVariables(template: string, urlEncode?: (s: string) => string): string {
+		// First process piped variables (more specific pattern)
+		let result = template.replace(
+			TemplateEngine.PIPE_VARIABLE_REGEX,
+			(match, variable, pipePart) => {
+				let value = this.getVariableAsString(variable.trim());
+				if (value === null) return '';
+
+				// Parse and apply filters
+				const filters = this.parsePipeFilters(pipePart);
+				for (const filter of filters) {
+					value = this.applyInlineFilter(value, filter);
+				}
+
+				if (urlEncode) {
+					value = urlEncode(value);
+				}
+
+				return value;
+			}
+		);
+
+		// Then process simple variables
+		result = result.replace(TemplateEngine.SIMPLE_VARIABLE_REGEX, (match, variable) => {
+			let value = this.getVariableAsString(variable);
+			if (value === null) return '';
+
+			if (urlEncode) {
+				value = urlEncode(value);
+			}
+
+			return value;
+		});
+
+		return result;
+	}
+
+	/**
+	 * Parse pipe filters from a string like `| filter "args" | filter2`.
+	 */
+	private parsePipeFilters(pipePart: string): FilterBlock[] {
+		const filters: FilterBlock[] = [];
+		// Split by pipe, but be careful with quoted strings
+		const filterParts = pipePart.split(/\s*\|\s*/);
+
+		for (const part of filterParts) {
+			const trimmed = part.trim();
+			if (!trimmed) continue;
+
+			// Parse filter name and args: `filterName "arg"` or `filterName`
+			const argMatch = trimmed.match(/^(\w+)(?:\s+(?:"([^"]*)"|'([^']*)'|(\S+)))?$/);
+			if (argMatch) {
+				const name = argMatch[1];
+				const args = argMatch[2] ?? argMatch[3] ?? argMatch[4] ?? undefined;
+				filters.push({ name, args });
+			} else {
+				// Just filter name
+				filters.push({ name: trimmed });
+			}
+		}
+
+		return filters;
+	}
+
+	/**
+	 * Apply an inline filter to a value.
+	 * Implements common Cardigann/Go template filters.
+	 */
+	private applyInlineFilter(value: string, filter: FilterBlock): string {
+		const name = filter.name.toLowerCase();
+		const args = filter.args;
+
+		switch (name) {
+			case 'trimprefix':
+				if (typeof args === 'string' && value.startsWith(args)) {
+					return value.substring(args.length);
+				}
+				return value;
+
+			case 'trimsuffix':
+				if (typeof args === 'string' && value.endsWith(args)) {
+					return value.substring(0, value.length - args.length);
+				}
+				return value;
+
+			case 'tolower':
+			case 'lower':
+				return value.toLowerCase();
+
+			case 'toupper':
+			case 'upper':
+				return value.toUpperCase();
+
+			case 'trim':
+				return value.trim();
+
+			case 'urlencode':
+				return encodeURIComponent(value);
+
+			case 'urldecode':
+				try {
+					return decodeURIComponent(value);
+				} catch {
+					return value;
+				}
+
+			case 'replace':
+				// replace "old" "new" - but we only have one arg in this format
+				// For inline, args might be array-like or space-separated
+				return value;
+
+			default:
+				// Unknown filter, return as-is
+				logger.warn('Unknown inline filter', { name });
+				return value;
+		}
+	}
+
+	/**
+	 * Get a variable as a string value.
+	 */
+	private getVariableAsString(name: string): string | null {
+		const value = this.variables.get(name);
+
+		if (value === null || value === undefined) {
+			return null;
+		}
+
+		if (typeof value === 'string') {
+			return value;
+		}
+
+		if (typeof value === 'number' || typeof value === 'boolean') {
+			return String(value);
+		}
+
+		if (Array.isArray(value)) {
+			return value.join(',');
+		}
+
+		return String(value);
+	}
+
+	/**
+	 * Clone the template engine with all current variables.
+	 */
+	clone(): TemplateEngine {
+		const cloned = new TemplateEngine();
+		cloned.variables = new Map(this.variables);
+		return cloned;
+	}
+
+	/**
+	 * Clear all variables and reinitialize.
+	 */
+	reset(): void {
+		this.variables.clear();
+		this.initializeBaseVariables();
+	}
+}
+
+/**
+ * Create a new TemplateEngine instance.
+ */
+export function createTemplateEngine(): TemplateEngine {
+	return new TemplateEngine();
+}

@@ -1,0 +1,291 @@
+import type { Handle, HandleServerError } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
+import { randomUUID } from 'node:crypto';
+
+import { logger } from '$lib/logging';
+import { librarySchedulerService } from '$lib/server/library/index.js';
+import { isFFprobeAvailable, getFFprobeVersion } from '$lib/server/library/ffprobe.js';
+import { downloadMonitor } from '$lib/server/downloadClients/monitoring';
+import { importService } from '$lib/server/downloadClients/import';
+import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
+import { getExternalIdService } from '$lib/server/services/ExternalIdService.js';
+import { qualityFilter } from '$lib/server/quality';
+import { isAppError } from '$lib/errors';
+import { initializeDatabase } from '$lib/server/db';
+
+/**
+ * Content Security Policy header.
+ * Note: 'unsafe-inline' is required for Svelte's inline styles and some script functionality.
+ * For stricter CSP, would need to implement nonce-based CSP with SvelteKit hooks.
+ * Current policy is acceptable for LAN-only deployment.
+ */
+const CSP_HEADER = [
+	"default-src 'self'",
+	"script-src 'self' 'unsafe-inline'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data: https://image.tmdb.org",
+	"connect-src 'self'",
+	"font-src 'self'"
+].join('; ');
+
+/**
+ * Common security headers applied to all responses.
+ */
+const SECURITY_HEADERS: Record<string, string> = {
+	'X-Content-Type-Options': 'nosniff',
+	'X-Frame-Options': 'DENY',
+	'Referrer-Policy': 'strict-origin-when-cross-origin',
+	'X-XSS-Protection': '1; mode=block',
+	'Content-Security-Policy': CSP_HEADER
+};
+
+// Initialize library scheduler on server startup
+// This sets up filesystem watching and periodic scans
+let libraryInitialized = false;
+let downloadMonitorInitialized = false;
+let monitoringInitialized = false;
+let externalIdServiceInitialized = false;
+
+async function checkFFprobe() {
+	const available = await isFFprobeAvailable();
+	if (!available) {
+		logger.warn('⚠️  ffprobe not found in PATH');
+		logger.warn('   Media info extraction will not work without ffprobe.');
+		logger.warn('   Install ffmpeg/ffprobe:');
+		logger.warn('   - Ubuntu/Debian: sudo apt install ffmpeg');
+		logger.warn('   - macOS: brew install ffmpeg');
+		logger.warn('   - Or set FFPROBE_PATH environment variable');
+		return;
+	}
+
+	const version = await getFFprobeVersion();
+	logger.info(`ffprobe available: ${version || 'unknown version'}`);
+}
+
+async function initializeLibrary() {
+	if (libraryInitialized) return;
+
+	try {
+		// Seed default scoring profiles to database (ensures foreign key targets exist)
+		await qualityFilter.seedDefaultScoringProfiles();
+
+		// Check ffprobe availability in background (informational only, doesn't block)
+		checkFFprobe().catch((e) => logger.error('FFprobe check failed', e));
+
+		await librarySchedulerService.initialize();
+		libraryInitialized = true;
+		logger.info('Library scheduler initialized');
+	} catch (error) {
+		logger.error('Failed to initialize library scheduler', error);
+	}
+}
+
+async function initializeDownloadMonitor() {
+	if (downloadMonitorInitialized) return;
+
+	try {
+		// Start the download monitor (polls clients and triggers imports)
+		// This now performs a startup sync to check for orphaned downloads
+		await downloadMonitor.start();
+
+		// Start the import service (checks for pending imports from previous runs)
+		importService.start();
+
+		downloadMonitorInitialized = true;
+		logger.info('Download monitor and import services started');
+	} catch (error) {
+		logger.error('Failed to start download monitor', error);
+	}
+}
+
+async function initializeMonitoring() {
+	if (monitoringInitialized) return;
+
+	try {
+		// Start the monitoring scheduler (automated searches for missing/upgrades/new episodes)
+		// Note: The scheduler has a built-in 5-minute grace period before running any tasks
+		await monitoringScheduler.initialize();
+
+		monitoringInitialized = true;
+		logger.info('Monitoring scheduler initialized (tasks deferred by grace period)');
+	} catch (error) {
+		logger.error('Failed to initialize monitoring scheduler', error);
+	}
+}
+
+async function initializeExternalIdService() {
+	if (externalIdServiceInitialized) return;
+
+	try {
+		// Start the external ID service (ensures all media has IMDB/TVDB IDs)
+		const externalIdService = getExternalIdService();
+		externalIdService.start();
+
+		externalIdServiceInitialized = true;
+		logger.info('External ID service started');
+	} catch (error) {
+		logger.error('Failed to start external ID service', error);
+	}
+}
+
+// Start initialization in next tick - ensures module loading completes immediately
+// so the HTTP server can start responding to requests while services initialize in background.
+// Using setImmediate pushes the async work to the next event loop iteration.
+setImmediate(async () => {
+	try {
+		// 1. Run database migrations FIRST - creates/updates tables as needed
+		// This is the only truly blocking operation (other services depend on DB schema)
+		await initializeDatabase();
+
+		// 2. Essential services run in parallel (fire-and-forget with error handling)
+		// These don't block each other or HTTP responses
+		Promise.all([
+			initializeLibrary().catch((e) => logger.error('Library init failed', e)),
+			initializeDownloadMonitor().catch((e) => logger.error('Download monitor init failed', e))
+		]);
+
+		// 3. Background services start after a short delay
+		// The monitoring scheduler also has an internal 5-minute grace period before tasks run
+		setTimeout(() => {
+			initializeMonitoring().catch((e) => logger.error('Monitoring init failed', e));
+			initializeExternalIdService().catch((e) => logger.error('External ID init failed', e));
+		}, 5000);
+	} catch (error) {
+		logger.error('Critical: Database initialization failed - application may not function', error);
+	}
+});
+
+/**
+ * Server hooks for SvelteKit.
+ * Adds correlation IDs to all requests for tracing.
+ */
+export const handle: Handle = async ({ event, resolve }) => {
+	// Generate or extract correlation ID
+	const correlationId = event.request.headers.get('x-correlation-id') ?? randomUUID();
+
+	// Attach to locals for use in routes
+	event.locals.correlationId = correlationId;
+
+	// Check if this is a streaming route - these handle their own errors
+	const isStreamingRoute = event.url.pathname.startsWith('/api/streaming/');
+
+	// Log incoming request
+	logger.debug('Incoming request', {
+		correlationId,
+		method: event.request.method,
+		path: event.url.pathname
+	});
+
+	const startTime = performance.now();
+
+	try {
+		const response = await resolve(event);
+
+		// Add correlation ID to response headers
+		response.headers.set('x-correlation-id', correlationId);
+
+		// Add security headers (skip CSP for streaming routes - they need flexible origins)
+		if (isStreamingRoute) {
+			response.headers.set('Access-Control-Allow-Origin', '*');
+			response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+			response.headers.set('Access-Control-Allow-Headers', 'Range, Content-Type');
+		} else {
+			for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
+				response.headers.set(header, value);
+			}
+		}
+
+		// Log completed request
+		const duration = Math.round(performance.now() - startTime);
+		logger.debug('Request completed', {
+			correlationId,
+			method: event.request.method,
+			path: event.url.pathname,
+			status: response.status,
+			durationMs: duration
+		});
+
+		return response;
+	} catch (error) {
+		// Streaming routes handle their own errors - re-throw to let SvelteKit handle
+		if (isStreamingRoute) {
+			logger.error('Streaming route error', error, {
+				correlationId,
+				method: event.request.method,
+				path: event.url.pathname
+			});
+			// Return plain text error for streaming routes (media players expect this)
+			const message = error instanceof Error ? error.message : 'Stream error';
+			return new Response(message, {
+				status: 500,
+				headers: {
+					'Content-Type': 'text/plain',
+					'x-correlation-id': correlationId,
+					'Access-Control-Allow-Origin': '*'
+				}
+			});
+		}
+
+		// Log unhandled errors
+		logger.error('Unhandled error in request', error, {
+			correlationId,
+			method: event.request.method,
+			path: event.url.pathname
+		});
+
+		// Handle AppError instances with consistent formatting
+		if (isAppError(error)) {
+			const response = json(
+				{
+					success: false,
+					...error.toJSON()
+				},
+				{
+					status: error.statusCode,
+					headers: {
+						'x-correlation-id': correlationId,
+						...SECURITY_HEADERS
+					}
+				}
+			);
+			return response;
+		}
+
+		// For non-AppError exceptions, return generic 500 error
+		const response = json(
+			{
+				success: false,
+				error: 'Internal Server Error',
+				code: 'INTERNAL_ERROR'
+			},
+			{
+				status: 500,
+				headers: {
+					'x-correlation-id': correlationId,
+					...SECURITY_HEADERS
+				}
+			}
+		);
+		return response;
+	}
+};
+
+/**
+ * Global error handler for uncaught exceptions.
+ * This catches errors that weren't handled in the request handler.
+ */
+export const handleError: HandleServerError = ({ error, event }) => {
+	const correlationId = event.locals.correlationId ?? 'unknown';
+
+	logger.error('Uncaught exception', error, {
+		correlationId,
+		method: event.request.method,
+		path: event.url.pathname
+	});
+
+	// Return safe error message to client
+	return {
+		message: isAppError(error) ? error.message : 'An unexpected error occurred',
+		code: isAppError(error) ? error.code : 'INTERNAL_ERROR'
+	};
+};

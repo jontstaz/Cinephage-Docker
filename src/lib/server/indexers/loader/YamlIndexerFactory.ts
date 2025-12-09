@@ -1,0 +1,214 @@
+/**
+ * YAML Indexer Factory
+ * Creates YamlIndexer instances from database configs and YAML definitions.
+ */
+
+import type { IIndexer, IIndexerFactory, IndexerConfig } from '../core/interfaces';
+import type { YamlDefinition } from '../schema/yamlDefinition';
+import { YamlIndexer } from '../runtime/YamlIndexer';
+import { YamlDefinitionLoader, getYamlDefinitionLoader } from './YamlDefinitionLoader';
+import { createChildLogger } from '$lib/logging';
+
+const log = createChildLogger({ module: 'YamlIndexerFactory' });
+
+/**
+ * Factory for creating YAML-based indexer instances.
+ */
+export class YamlIndexerFactory implements IIndexerFactory {
+	private definitionLoader: YamlDefinitionLoader;
+	private indexerCache: Map<string, YamlIndexer> = new Map();
+
+	constructor(definitionLoader: YamlDefinitionLoader) {
+		this.definitionLoader = definitionLoader;
+	}
+
+	/**
+	 * Check if this factory can handle a definition.
+	 */
+	canHandle(definitionId: string): boolean {
+		return this.definitionLoader.hasDefinition(definitionId);
+	}
+
+	/**
+	 * Create an indexer instance from config.
+	 */
+	createIndexer(config: IndexerConfig): IIndexer {
+		// Check cache first
+		const cached = this.indexerCache.get(config.id);
+		if (cached) {
+			return cached;
+		}
+
+		// Get definition
+		const definition = this.definitionLoader.getDefinition(config.definitionId);
+		if (!definition) {
+			throw new Error(`Definition not found: ${config.definitionId}`);
+		}
+
+		// Create indexer
+		const indexer = new YamlIndexer({
+			config,
+			definition,
+			rateLimit: definition.requestdelay
+				? { requests: 1, periodMs: definition.requestdelay * 1000 }
+				: undefined
+		});
+
+		// Cache it
+		this.indexerCache.set(config.id, indexer);
+
+		log.debug('Created indexer', { id: config.id, definitionId: config.definitionId });
+
+		return indexer;
+	}
+
+	/**
+	 * Remove an indexer from the cache.
+	 */
+	removeIndexer(id: string): void {
+		this.indexerCache.delete(id);
+	}
+
+	/**
+	 * Clear all cached indexers.
+	 */
+	clearCache(): void {
+		this.indexerCache.clear();
+	}
+
+	/**
+	 * Get all available definition IDs.
+	 */
+	getAvailableDefinitions(): string[] {
+		return this.definitionLoader.getAllIds();
+	}
+
+	/**
+	 * Get definition metadata for UI display.
+	 */
+	getDefinitionMetadata(
+		definitionId: string
+	): { name: string; type: string; language: string; description?: string } | null {
+		const definition = this.definitionLoader.getDefinition(definitionId);
+		if (!definition) return null;
+
+		return {
+			name: definition.name,
+			type: definition.type,
+			language: definition.language,
+			description: definition.description
+		};
+	}
+
+	/**
+	 * Get all definition metadata.
+	 */
+	getAllDefinitionMetadata(): Array<{
+		id: string;
+		name: string;
+		type: string;
+		language: string;
+		description?: string;
+	}> {
+		return this.definitionLoader.getAllDefinitions().map((def) => ({
+			id: def.id,
+			name: def.name,
+			type: def.type,
+			language: def.language,
+			description: def.description
+		}));
+	}
+
+	/**
+	 * Get required settings fields for a definition.
+	 */
+	getRequiredSettings(definitionId: string): Array<{
+		name: string;
+		type: string;
+		label: string;
+		default?: string;
+	}> {
+		const definition = this.definitionLoader.getDefinition(definitionId);
+		if (!definition) return [];
+
+		const settings = definition.settings ?? [];
+
+		// If no settings defined but login requires credentials, add defaults
+		if (settings.length === 0 && definition.login) {
+			const method = definition.login.method?.toLowerCase() ?? 'post';
+
+			if (method === 'cookie') {
+				return [
+					{
+						name: 'cookie',
+						type: 'text',
+						label: 'Cookie'
+					}
+				];
+			} else if (method !== 'oneurl') {
+				// Most login methods need username/password
+				return [
+					{
+						name: 'username',
+						type: 'text',
+						label: 'Username'
+					},
+					{
+						name: 'password',
+						type: 'password',
+						label: 'Password'
+					}
+				];
+			}
+		}
+
+		return settings.map((s) => ({
+			name: s.name,
+			type: s.type ?? 'text',
+			label: s.label ?? s.name,
+			default: s.default !== undefined ? String(s.default) : undefined
+		}));
+	}
+
+	/**
+	 * Get the full definition for a given ID.
+	 */
+	getDefinition(definitionId: string): YamlDefinition | undefined {
+		return this.definitionLoader.getDefinition(definitionId);
+	}
+
+	/**
+	 * Reload all definitions.
+	 */
+	async reloadDefinitions(): Promise<void> {
+		await this.definitionLoader.reloadAll();
+		// Clear cache since definitions may have changed
+		this.clearCache();
+	}
+}
+
+/**
+ * Singleton instance of the factory.
+ */
+let factoryInstance: YamlIndexerFactory | null = null;
+
+/**
+ * Gets the singleton factory instance, initializing if necessary.
+ */
+export async function getYamlIndexerFactory(
+	definitionsPath?: string[]
+): Promise<YamlIndexerFactory> {
+	if (!factoryInstance) {
+		const loader = await getYamlDefinitionLoader(definitionsPath);
+		factoryInstance = new YamlIndexerFactory(loader);
+	}
+
+	return factoryInstance;
+}
+
+/**
+ * Resets the singleton factory (useful for testing).
+ */
+export function resetYamlIndexerFactory(): void {
+	factoryInstance = null;
+}

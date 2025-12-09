@@ -1,0 +1,263 @@
+<script lang="ts">
+	import { X, Loader2, CheckCircle2, XCircle, FolderOpen } from 'lucide-svelte';
+	import type {
+		RootFolder,
+		RootFolderFormData,
+		PathValidationResult
+	} from '$lib/types/downloadClient';
+	import FolderBrowser from '$lib/components/FolderBrowser.svelte';
+
+	interface Props {
+		open: boolean;
+		mode: 'add' | 'edit';
+		folder?: RootFolder | null;
+		saving: boolean;
+		error?: string | null;
+		onClose: () => void;
+		onSave: (data: RootFolderFormData) => void;
+		onDelete?: () => void;
+		onValidatePath: (path: string) => Promise<PathValidationResult>;
+	}
+
+	let {
+		open,
+		mode,
+		folder = null,
+		saving,
+		error = null,
+		onClose,
+		onSave,
+		onDelete,
+		onValidatePath
+	}: Props = $props();
+
+	// Form state (defaults only, effect syncs from props)
+	let name = $state('');
+	let path = $state('');
+	let mediaType = $state<'movie' | 'tv'>('movie');
+	let isDefault = $state(false);
+
+	// UI state
+	let validating = $state(false);
+	let validationResult = $state<PathValidationResult | null>(null);
+	let showFolderBrowser = $state(false);
+
+	// Derived
+	const modalTitle = $derived(mode === 'add' ? 'Add Root Folder' : 'Edit Root Folder');
+
+	// Reset form when modal opens or folder changes
+	$effect(() => {
+		if (open) {
+			name = folder?.name ?? '';
+			path = folder?.path ?? '';
+			mediaType = folder?.mediaType ?? 'movie';
+			isDefault = folder?.isDefault ?? false;
+			validationResult = null;
+			showFolderBrowser = false;
+		}
+	});
+
+	function getFormData(): RootFolderFormData {
+		return {
+			name,
+			path,
+			mediaType,
+			isDefault
+		};
+	}
+
+	async function handleValidatePath() {
+		if (!path) return;
+
+		validating = true;
+		validationResult = null;
+		try {
+			validationResult = await onValidatePath(path);
+		} finally {
+			validating = false;
+		}
+	}
+
+	function handleSave() {
+		onSave(getFormData());
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			if (showFolderBrowser) {
+				showFolderBrowser = false;
+			} else {
+				onClose();
+			}
+		}
+	}
+
+	function handleFolderSelect(selectedPath: string) {
+		path = selectedPath;
+		showFolderBrowser = false;
+		// Auto-validate after selection
+		handleValidatePath();
+	}
+</script>
+
+<svelte:window onkeydown={handleKeydown} />
+
+{#if open}
+	<div class="modal-open modal">
+		<div class="modal-box max-h-[90vh] max-w-2xl overflow-y-auto">
+			<!-- Header -->
+			<div class="mb-6 flex items-center justify-between">
+				<h3 class="text-xl font-bold">{modalTitle}</h3>
+				<button class="btn btn-circle btn-ghost btn-sm" onclick={onClose}>
+					<X class="h-4 w-4" />
+				</button>
+			</div>
+
+			<!-- Folder Browser -->
+			{#if showFolderBrowser}
+				<FolderBrowser
+					value={path || '/'}
+					onSelect={handleFolderSelect}
+					onCancel={() => (showFolderBrowser = false)}
+				/>
+			{:else}
+				<!-- Form -->
+				<div class="space-y-4">
+					<div class="grid grid-cols-2 gap-4">
+						<div class="form-control">
+							<label class="label py-1" for="name">
+								<span class="label-text">Name</span>
+							</label>
+							<input
+								id="name"
+								type="text"
+								class="input-bordered input input-sm"
+								bind:value={name}
+								placeholder="Movies Library"
+							/>
+						</div>
+
+						<div class="form-control">
+							<label class="label py-1" for="mediaType">
+								<span class="label-text">Media Type</span>
+							</label>
+							<select
+								id="mediaType"
+								class="select-bordered select select-sm"
+								bind:value={mediaType}
+							>
+								<option value="movie">Movies</option>
+								<option value="tv">TV Shows</option>
+							</select>
+						</div>
+					</div>
+
+					<div class="form-control">
+						<label class="label py-1" for="path">
+							<span class="label-text">Path</span>
+						</label>
+						<div class="flex gap-2">
+							<div class="join flex-1">
+								<input
+									id="path"
+									type="text"
+									class="input-bordered input input-sm join-item flex-1"
+									bind:value={path}
+									placeholder="/mnt/media/movies"
+								/>
+								<button
+									type="button"
+									class="btn join-item border border-base-300 btn-ghost btn-sm"
+									onclick={() => (showFolderBrowser = true)}
+									title="Browse folders"
+								>
+									<FolderOpen class="h-4 w-4" />
+								</button>
+							</div>
+							<button
+								class="btn btn-ghost btn-sm"
+								onclick={handleValidatePath}
+								disabled={validating || !path}
+							>
+								{#if validating}
+									<Loader2 class="h-4 w-4 animate-spin" />
+								{/if}
+								Validate
+							</button>
+						</div>
+						<div class="label py-1">
+							<span class="label-text-alt text-xs">
+								The folder path where your media library is stored
+							</span>
+						</div>
+					</div>
+
+					<div class="form-control">
+						<label class="label cursor-pointer justify-start gap-3">
+							<input type="checkbox" class="checkbox checkbox-sm" bind:checked={isDefault} />
+							<span class="label-text"
+								>Set as default for {mediaType === 'movie' ? 'movies' : 'TV shows'}</span
+							>
+						</label>
+					</div>
+
+					<!-- Save Error -->
+					{#if error}
+						<div class="alert alert-error">
+							<XCircle class="h-5 w-5" />
+							<div>
+								<div class="font-medium">Failed to save</div>
+								<div class="text-sm opacity-80">{error}</div>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Validation Result -->
+					{#if validationResult}
+						<div class="alert {validationResult.valid ? 'alert-success' : 'alert-error'}">
+							{#if validationResult.valid}
+								<CheckCircle2 class="h-5 w-5" />
+								<div>
+									<div class="font-medium">Path is valid</div>
+									{#if validationResult.freeSpaceFormatted}
+										<div class="text-sm opacity-80">
+											Free space: {validationResult.freeSpaceFormatted}
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<XCircle class="h-5 w-5" />
+								<div>
+									<div class="font-medium">Path validation failed</div>
+									<div class="text-sm opacity-80">{validationResult.error}</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Actions -->
+				<div class="modal-action">
+					{#if mode === 'edit' && onDelete}
+						<button class="btn mr-auto btn-outline btn-error" onclick={onDelete}>Delete</button>
+					{/if}
+
+					<button class="btn btn-ghost" onclick={onClose}>Cancel</button>
+
+					<button class="btn btn-primary" onclick={handleSave} disabled={saving || !path || !name}>
+						{#if saving}
+							<Loader2 class="h-4 w-4 animate-spin" />
+						{/if}
+						Save
+					</button>
+				</div>
+			{/if}
+		</div>
+		<button
+			type="button"
+			class="modal-backdrop cursor-default border-none bg-black/50"
+			onclick={onClose}
+			aria-label="Close modal"
+		></button>
+	</div>
+{/if}

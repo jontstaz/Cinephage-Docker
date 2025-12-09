@@ -1,0 +1,45 @@
+/**
+ * Streaming Module
+ *
+ * Provides streaming functionality for Cinephage including:
+ * - Stream extraction from multiple providers via EncDec API
+ * - HLS playlist parsing and best quality selection
+ * - Caching for stream URLs
+ * - STRM file generation and management
+ * - Shared HTTP utilities for providers
+ */
+
+// Core types
+export * from './types';
+
+// Configuration constants
+export * from './constants';
+
+// Caching
+export * from './cache';
+
+// HLS parsing
+export * from './hls';
+
+// Stream providers (replaces extractors)
+export { extractStreams, getAvailableProviders, getProviderById, clearCaches } from './providers';
+
+// EncDec API client
+export { getEncDecClient, EncDecClient } from './enc-dec';
+
+// STRM file service
+export * from './StrmService';
+
+// URL utilities
+export * from './url';
+
+// Settings helper
+export * from './settings';
+
+// Shared HTTP utilities (also available via ./utils)
+export {
+	fetchWithTimeout,
+	fetchPlaylist,
+	checkStreamAvailability,
+	checkHlsAvailability
+} from './utils';

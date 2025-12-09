@@ -1,0 +1,328 @@
+/**
+ * DownloadClientManager - Central service for managing download clients.
+ * Handles client configuration, testing, and download operations.
+ */
+
+import { db } from '$lib/server/db';
+import { downloadClients as downloadClientsTable } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { logger } from '$lib/logging';
+
+import type { IDownloadClient, DownloadClientConfig } from './core/interfaces';
+import type {
+	DownloadClient,
+	ConnectionTestResult,
+	DownloadClientImplementation
+} from '$lib/types/downloadClient';
+import { QBittorrentClient } from './qbittorrent/QBittorrentClient';
+
+/**
+ * Configuration for creating/updating a download client.
+ */
+export interface DownloadClientInput {
+	name: string;
+	implementation: DownloadClientImplementation;
+	enabled?: boolean;
+	host: string;
+	port: number;
+	useSsl?: boolean;
+	username?: string | null;
+	password?: string | null;
+	movieCategory?: string;
+	tvCategory?: string;
+	recentPriority?: 'normal' | 'high' | 'force';
+	olderPriority?: 'normal' | 'high' | 'force';
+	initialState?: 'start' | 'pause' | 'force';
+	seedRatioLimit?: string | null;
+	seedTimeLimit?: number | null;
+	downloadPathLocal?: string | null;
+	downloadPathRemote?: string | null;
+	priority?: number;
+}
+
+/**
+ * Central service for managing download clients.
+ */
+export class DownloadClientManager {
+	private clientInstances: Map<string, IDownloadClient> = new Map();
+
+	/**
+	 * Get all configured download clients from database.
+	 * Passwords are not returned for security.
+	 */
+	async getClients(): Promise<DownloadClient[]> {
+		const rows = await db.select().from(downloadClientsTable);
+		return rows.map((row) => this.rowToClient(row));
+	}
+
+	/**
+	 * Get a specific client config by ID.
+	 */
+	async getClient(id: string): Promise<DownloadClient | undefined> {
+		const rows = await db
+			.select()
+			.from(downloadClientsTable)
+			.where(eq(downloadClientsTable.id, id));
+		return rows[0] ? this.rowToClient(rows[0]) : undefined;
+	}
+
+	/**
+	 * Get a client config with password (for internal use only).
+	 */
+	private async getClientWithPassword(
+		id: string
+	): Promise<(DownloadClient & { password?: string | null }) | undefined> {
+		const rows = await db
+			.select()
+			.from(downloadClientsTable)
+			.where(eq(downloadClientsTable.id, id));
+		if (!rows[0]) return undefined;
+
+		const client = this.rowToClient(rows[0]);
+		return {
+			...client,
+			password: rows[0].password
+		};
+	}
+
+	/**
+	 * Create a new download client configuration.
+	 */
+	async createClient(input: DownloadClientInput): Promise<DownloadClient> {
+		const id = randomUUID();
+		const now = new Date().toISOString();
+
+		await db.insert(downloadClientsTable).values({
+			id,
+			name: input.name,
+			implementation: input.implementation,
+			enabled: input.enabled ?? true,
+			host: input.host,
+			port: input.port,
+			useSsl: input.useSsl ?? false,
+			username: input.username,
+			password: input.password,
+			movieCategory: input.movieCategory ?? 'movies',
+			tvCategory: input.tvCategory ?? 'tv',
+			recentPriority: input.recentPriority ?? 'normal',
+			olderPriority: input.olderPriority ?? 'normal',
+			initialState: input.initialState ?? 'start',
+			seedRatioLimit: input.seedRatioLimit,
+			seedTimeLimit: input.seedTimeLimit,
+			downloadPathLocal: input.downloadPathLocal,
+			downloadPathRemote: input.downloadPathRemote,
+			priority: input.priority ?? 1,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		logger.info('Download client created', { id, name: input.name });
+
+		const created = await this.getClient(id);
+		if (!created) {
+			throw new Error('Failed to create download client');
+		}
+
+		return created;
+	}
+
+	/**
+	 * Update a download client configuration.
+	 */
+	async updateClient(id: string, updates: Partial<DownloadClientInput>): Promise<DownloadClient> {
+		const existing = await this.getClient(id);
+		if (!existing) {
+			throw new Error(`Download client not found: ${id}`);
+		}
+
+		const updateData: Record<string, unknown> = {
+			updatedAt: new Date().toISOString()
+		};
+
+		if (updates.name !== undefined) updateData.name = updates.name;
+		if (updates.implementation !== undefined) updateData.implementation = updates.implementation;
+		if (updates.enabled !== undefined) updateData.enabled = updates.enabled;
+		if (updates.host !== undefined) updateData.host = updates.host;
+		if (updates.port !== undefined) updateData.port = updates.port;
+		if (updates.useSsl !== undefined) updateData.useSsl = updates.useSsl;
+		if (updates.username !== undefined) updateData.username = updates.username;
+		// Only update password if explicitly provided and not empty
+		if (updates.password !== undefined && updates.password !== '') {
+			updateData.password = updates.password;
+		}
+		if (updates.movieCategory !== undefined) updateData.movieCategory = updates.movieCategory;
+		if (updates.tvCategory !== undefined) updateData.tvCategory = updates.tvCategory;
+		if (updates.recentPriority !== undefined) updateData.recentPriority = updates.recentPriority;
+		if (updates.olderPriority !== undefined) updateData.olderPriority = updates.olderPriority;
+		if (updates.initialState !== undefined) updateData.initialState = updates.initialState;
+		if (updates.seedRatioLimit !== undefined) updateData.seedRatioLimit = updates.seedRatioLimit;
+		if (updates.seedTimeLimit !== undefined) updateData.seedTimeLimit = updates.seedTimeLimit;
+		if (updates.downloadPathLocal !== undefined)
+			updateData.downloadPathLocal = updates.downloadPathLocal;
+		if (updates.downloadPathRemote !== undefined)
+			updateData.downloadPathRemote = updates.downloadPathRemote;
+		if (updates.priority !== undefined) updateData.priority = updates.priority;
+
+		await db.update(downloadClientsTable).set(updateData).where(eq(downloadClientsTable.id, id));
+
+		// Clear cached instance so it gets recreated with new config
+		this.clientInstances.delete(id);
+
+		logger.info('Download client updated', { id });
+
+		const updated = await this.getClient(id);
+		if (!updated) {
+			throw new Error('Failed to update download client');
+		}
+
+		return updated;
+	}
+
+	/**
+	 * Delete a download client.
+	 */
+	async deleteClient(id: string): Promise<void> {
+		await db.delete(downloadClientsTable).where(eq(downloadClientsTable.id, id));
+		this.clientInstances.delete(id);
+		logger.info('Download client deleted', { id });
+	}
+
+	/**
+	 * Test a download client's connectivity.
+	 * Can test either an existing client by ID or test config before saving.
+	 */
+	async testClient(config: DownloadClientConfig): Promise<ConnectionTestResult> {
+		const client = this.createClientInstance(config);
+		if (!client) {
+			return {
+				success: false,
+				error: `Unsupported implementation: ${(config as { implementation?: string }).implementation ?? 'unknown'}`
+			};
+		}
+
+		return client.test();
+	}
+
+	/**
+	 * Test an existing client by ID.
+	 */
+	async testClientById(id: string): Promise<ConnectionTestResult> {
+		const clientConfig = await this.getClientWithPassword(id);
+		if (!clientConfig) {
+			return {
+				success: false,
+				error: `Download client not found: ${id}`
+			};
+		}
+
+		return this.testClient({
+			host: clientConfig.host,
+			port: clientConfig.port,
+			useSsl: clientConfig.useSsl,
+			username: clientConfig.username,
+			password: clientConfig.password
+		});
+	}
+
+	/**
+	 * Get or create a client instance for operations.
+	 */
+	async getClientInstance(id: string): Promise<IDownloadClient | undefined> {
+		// Check cache first
+		let instance = this.clientInstances.get(id);
+		if (instance) return instance;
+
+		// Load config with password
+		const config = await this.getClientWithPassword(id);
+		if (!config) return undefined;
+
+		// Create instance
+		instance = this.createClientInstance({
+			host: config.host,
+			port: config.port,
+			useSsl: config.useSsl,
+			username: config.username,
+			password: config.password
+		});
+
+		if (instance) {
+			this.clientInstances.set(id, instance);
+		}
+
+		return instance;
+	}
+
+	/**
+	 * Get all enabled client instances.
+	 */
+	async getEnabledClients(): Promise<Array<{ client: DownloadClient; instance: IDownloadClient }>> {
+		const clients = await this.getClients();
+		const enabledClients = clients.filter((c) => c.enabled);
+
+		const results: Array<{ client: DownloadClient; instance: IDownloadClient }> = [];
+
+		for (const client of enabledClients) {
+			const instance = await this.getClientInstance(client.id);
+			if (instance) {
+				results.push({ client, instance });
+			}
+		}
+
+		return results;
+	}
+
+	/**
+	 * Create a client instance from config.
+	 */
+	private createClientInstance(config: DownloadClientConfig): IDownloadClient | undefined {
+		// For now, we only support QBittorrent
+		// In the future, we'd check config.implementation and return the appropriate client
+		return new QBittorrentClient(config);
+	}
+
+	/**
+	 * Convert database row to DownloadClient (without password).
+	 */
+	private rowToClient(row: typeof downloadClientsTable.$inferSelect): DownloadClient {
+		return {
+			id: row.id,
+			name: row.name,
+			implementation: row.implementation as DownloadClientImplementation,
+			enabled: !!row.enabled,
+			host: row.host,
+			port: row.port,
+			useSsl: !!row.useSsl,
+			username: row.username,
+			hasPassword: !!row.password,
+			movieCategory: row.movieCategory ?? 'movies',
+			tvCategory: row.tvCategory ?? 'tv',
+			recentPriority: (row.recentPriority as 'normal' | 'high' | 'force') ?? 'normal',
+			olderPriority: (row.olderPriority as 'normal' | 'high' | 'force') ?? 'normal',
+			initialState: (row.initialState as 'start' | 'pause' | 'force') ?? 'start',
+			seedRatioLimit: row.seedRatioLimit,
+			seedTimeLimit: row.seedTimeLimit,
+			downloadPathLocal: row.downloadPathLocal,
+			downloadPathRemote: row.downloadPathRemote,
+			priority: row.priority ?? 1,
+			createdAt: row.createdAt ?? undefined,
+			updatedAt: row.updatedAt ?? undefined
+		};
+	}
+}
+
+/** Singleton instance */
+let managerInstance: DownloadClientManager | null = null;
+
+/** Get the singleton DownloadClientManager */
+export function getDownloadClientManager(): DownloadClientManager {
+	if (!managerInstance) {
+		managerInstance = new DownloadClientManager();
+	}
+	return managerInstance;
+}
+
+/** Reset the singleton (for testing) */
+export function resetDownloadClientManager(): void {
+	managerInstance = null;
+}

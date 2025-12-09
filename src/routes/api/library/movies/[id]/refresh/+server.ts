@@ -1,0 +1,89 @@
+/**
+ * Refresh Movie API
+ *
+ * POST /api/library/movies/[id]/refresh
+ * Refreshes movie metadata from TMDB including external IDs
+ */
+
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { db } from '$lib/server/db/index.js';
+import { movies } from '$lib/server/db/schema.js';
+import { eq } from 'drizzle-orm';
+import { tmdb } from '$lib/server/tmdb.js';
+import { logger } from '$lib/logging';
+
+export const POST: RequestHandler = async ({ params }) => {
+	const { id } = params;
+
+	// Get the movie
+	const [movieData] = await db.select().from(movies).where(eq(movies.id, id));
+
+	if (!movieData) {
+		error(404, 'Movie not found');
+	}
+
+	try {
+		// Fetch fresh data from TMDB
+		const [tmdbMovie, externalIds] = await Promise.all([
+			tmdb.getMovie(movieData.tmdbId),
+			tmdb.getMovieExternalIds(movieData.tmdbId).catch((err) => {
+				logger.warn('[API] Failed to fetch movie external IDs', {
+					tmdbId: movieData.tmdbId,
+					error: err instanceof Error ? err.message : String(err)
+				});
+				return null;
+			})
+		]);
+
+		// Update movie metadata
+		await db
+			.update(movies)
+			.set({
+				title: tmdbMovie.title,
+				originalTitle: tmdbMovie.original_title,
+				overview: tmdbMovie.overview,
+				posterPath: tmdbMovie.poster_path,
+				backdropPath: tmdbMovie.backdrop_path,
+				runtime: tmdbMovie.runtime,
+				genres: tmdbMovie.genres?.map((g) => g.name),
+				year: tmdbMovie.release_date
+					? new Date(tmdbMovie.release_date).getFullYear()
+					: movieData.year,
+				imdbId: externalIds?.imdb_id || movieData.imdbId
+			})
+			.where(eq(movies.id, id));
+
+		// Fetch updated movie data
+		const [updatedMovie] = await db.select().from(movies).where(eq(movies.id, id));
+
+		logger.info('[API] Movie metadata refreshed', {
+			id,
+			title: updatedMovie.title,
+			imdbId: updatedMovie.imdbId
+		});
+
+		return json({
+			success: true,
+			movie: {
+				id: updatedMovie.id,
+				tmdbId: updatedMovie.tmdbId,
+				imdbId: updatedMovie.imdbId,
+				title: updatedMovie.title,
+				year: updatedMovie.year,
+				overview: updatedMovie.overview,
+				posterPath: updatedMovie.posterPath,
+				backdropPath: updatedMovie.backdropPath,
+				runtime: updatedMovie.runtime,
+				genres: updatedMovie.genres
+			}
+		});
+	} catch (err) {
+		logger.error('[API] Failed to refresh movie metadata', err instanceof Error ? err : undefined, {
+			id,
+			tmdbId: movieData.tmdbId
+		});
+
+		error(500, err instanceof Error ? err.message : 'Failed to refresh movie metadata');
+	}
+};

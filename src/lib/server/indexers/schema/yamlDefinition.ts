@@ -1,0 +1,470 @@
+/**
+ * YAML Indexer Definition Schema
+ *
+ * Schema for YAML-based indexer definitions. Compatible with Prowlarr/Jackett
+ * definition format for community portability.
+ */
+
+import { z } from 'zod';
+
+// ============================================================================
+// Filter Block
+// ============================================================================
+
+export const filterBlockSchema = z.object({
+	name: z.string(),
+	args: z.union([z.string(), z.array(z.string()), z.number()]).optional()
+});
+
+export type FilterBlock = z.infer<typeof filterBlockSchema>;
+
+// ============================================================================
+// Selector Block
+// ============================================================================
+
+export const selectorBlockSchema = z.object({
+	selector: z.string().optional(),
+	optional: z.boolean().optional(),
+	default: z.string().optional(),
+	text: z.string().optional(),
+	attribute: z.string().optional(),
+	remove: z.string().optional(),
+	filters: z.array(filterBlockSchema).optional(),
+	case: z.record(z.string(), z.string()).optional()
+});
+
+export type SelectorBlock = z.infer<typeof selectorBlockSchema>;
+
+// ============================================================================
+// Settings Field
+// ============================================================================
+
+export const settingsFieldSchema = z.object({
+	name: z.string(),
+	type: z.enum([
+		'text',
+		'password',
+		'checkbox',
+		'select',
+		'info',
+		'info_cookie',
+		'info_cloudflare',
+		'info_useragent',
+		'info_category_8000',
+		'cardigannCaptcha'
+	]),
+	label: z.string(),
+	default: z.union([z.string(), z.boolean(), z.number()]).optional(),
+	defaults: z.array(z.string()).optional(),
+	options: z.record(z.string(), z.string()).optional()
+});
+
+export type SettingsField = z.infer<typeof settingsFieldSchema>;
+
+// ============================================================================
+// Category Mapping
+// ============================================================================
+
+export const categoryMappingSchema = z.object({
+	id: z.string(),
+	cat: z.string().optional(),
+	desc: z.string().optional(),
+	default: z.boolean().optional()
+});
+
+export type CategoryMapping = z.infer<typeof categoryMappingSchema>;
+
+// ============================================================================
+// Capabilities Block
+// ============================================================================
+
+export const capabilitiesBlockSchema = z.object({
+	categories: z.record(z.string(), z.string()).optional(),
+	categorymappings: z.array(categoryMappingSchema).optional(),
+	modes: z.record(z.string(), z.array(z.string())).optional(),
+	allowrawsearch: z.boolean().optional()
+});
+
+export type CapabilitiesBlock = z.infer<typeof capabilitiesBlockSchema>;
+
+// ============================================================================
+// Captcha Block
+// ============================================================================
+
+export const captchaBlockSchema = z.object({
+	type: z.string().optional(),
+	selector: z.string().optional(),
+	input: z.string().optional()
+});
+
+export type CaptchaBlock = z.infer<typeof captchaBlockSchema>;
+
+// ============================================================================
+// Error Block
+// ============================================================================
+
+export const errorBlockSchema = z.object({
+	path: z.string().optional(),
+	selector: z.string().optional(),
+	message: selectorBlockSchema.optional()
+});
+
+export type ErrorBlock = z.infer<typeof errorBlockSchema>;
+
+// ============================================================================
+// Page Test Block
+// ============================================================================
+
+export const pageTestBlockSchema = z.object({
+	path: z.string().optional(),
+	selector: z.string().optional()
+});
+
+export type PageTestBlock = z.infer<typeof pageTestBlockSchema>;
+
+// ============================================================================
+// Login Block
+// ============================================================================
+
+export const loginBlockSchema = z.object({
+	path: z.string().optional(),
+	submitpath: z.string().optional(),
+	cookies: z.array(z.string()).optional(),
+	method: z.enum(['post', 'form', 'cookie', 'get', 'oneurl']).optional(),
+	form: z.string().optional(),
+	selectors: z.boolean().optional(),
+	inputs: z.record(z.string(), z.string()).optional(),
+	selectorinputs: z.record(z.string(), selectorBlockSchema).optional(),
+	getselectorinputs: z.record(z.string(), selectorBlockSchema).optional(),
+	error: z.array(errorBlockSchema).optional(),
+	test: pageTestBlockSchema.optional(),
+	captcha: captchaBlockSchema.optional(),
+	headers: z.record(z.string(), z.array(z.string())).optional()
+});
+
+export type LoginBlock = z.infer<typeof loginBlockSchema>;
+
+// ============================================================================
+// Ratio Block
+// ============================================================================
+
+export const ratioBlockSchema = selectorBlockSchema.extend({
+	path: z.string().optional()
+});
+
+export type RatioBlock = z.infer<typeof ratioBlockSchema>;
+
+// ============================================================================
+// Request Block
+// ============================================================================
+
+// Input values can be strings, numbers, or booleans in YAML - coerce all to strings
+const inputValueSchema = z.union([z.string(), z.number(), z.boolean()]).transform((v) => String(v));
+
+export const requestBlockSchema = z.object({
+	path: z.string().optional(),
+	method: z.string().optional(),
+	inputs: z.record(z.string(), inputValueSchema).optional(),
+	queryseparator: z.string().optional()
+});
+
+export type RequestBlock = z.infer<typeof requestBlockSchema>;
+
+// ============================================================================
+// Response Block
+// ============================================================================
+
+export const responseBlockSchema = z.object({
+	type: z.enum(['json', 'html', 'xml']).optional(),
+	noResultsMessage: z.string().optional()
+});
+
+export type ResponseBlock = z.infer<typeof responseBlockSchema>;
+
+// ============================================================================
+// Search Path Block
+// ============================================================================
+
+export const searchPathBlockSchema = requestBlockSchema.extend({
+	categories: z.array(z.string()).optional(),
+	inheritinputs: z.boolean().optional(),
+	followredirect: z.boolean().optional(),
+	response: responseBlockSchema.optional()
+});
+
+export type SearchPathBlock = z.infer<typeof searchPathBlockSchema>;
+
+// ============================================================================
+// Rows Block
+// ============================================================================
+
+export const rowsBlockSchema = selectorBlockSchema.extend({
+	after: z.number().optional(),
+	dateheaders: selectorBlockSchema.optional(),
+	count: selectorBlockSchema.optional(),
+	// Can be boolean or string - string specifies nested field to iterate over
+	multiple: z.union([z.boolean(), z.string()]).optional(),
+	missingAttributeEqualsNoResults: z.boolean().optional()
+});
+
+export type RowsBlock = z.infer<typeof rowsBlockSchema>;
+
+// ============================================================================
+// Field Definition
+// Used in search.fields - can be either a SelectorBlock or a simple string
+// ============================================================================
+
+export const fieldDefinitionSchema = z.union([selectorBlockSchema, z.string()]);
+
+export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>;
+
+// ============================================================================
+// Search Block
+// ============================================================================
+
+export const searchBlockSchema = z.object({
+	path: z.string().optional(),
+	paths: z.array(searchPathBlockSchema).optional(),
+	headers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
+	keywordsfilters: z.array(filterBlockSchema).optional(),
+	allowEmptyInputs: z.boolean().optional(),
+	inputs: z.record(z.string(), inputValueSchema).optional(),
+	error: z.array(errorBlockSchema).optional(),
+	preprocessingfilters: z.array(filterBlockSchema).optional(),
+	rows: rowsBlockSchema.optional(),
+	fields: z.record(z.string(), fieldDefinitionSchema).optional()
+});
+
+export type SearchBlock = z.infer<typeof searchBlockSchema>;
+
+// ============================================================================
+// Selector Field (for download)
+// ============================================================================
+
+export const selectorFieldSchema = z.object({
+	selector: z.string().optional(),
+	attribute: z.string().optional(),
+	usebeforeresponse: z.boolean().optional(),
+	filters: z.array(filterBlockSchema).optional()
+});
+
+export type SelectorField = z.infer<typeof selectorFieldSchema>;
+
+// ============================================================================
+// Before Block
+// ============================================================================
+
+export const beforeBlockSchema = requestBlockSchema.extend({
+	pathselector: selectorFieldSchema.optional()
+});
+
+export type BeforeBlock = z.infer<typeof beforeBlockSchema>;
+
+// ============================================================================
+// Infohash Block
+// ============================================================================
+
+export const infohashBlockSchema = z.object({
+	hash: selectorFieldSchema.optional(),
+	title: selectorFieldSchema.optional(),
+	usebeforeresponse: z.boolean().optional()
+});
+
+export type InfohashBlock = z.infer<typeof infohashBlockSchema>;
+
+// ============================================================================
+// Download Block
+// ============================================================================
+
+export const downloadBlockSchema = z.object({
+	selectors: z.array(selectorFieldSchema).optional(),
+	method: z.string().optional(),
+	before: beforeBlockSchema.optional(),
+	infohash: infohashBlockSchema.optional(),
+	headers: z.record(z.string(), z.array(z.string())).optional()
+});
+
+export type DownloadBlock = z.infer<typeof downloadBlockSchema>;
+
+// ============================================================================
+// YAML Definition (Root Schema)
+// ============================================================================
+
+export const yamlDefinitionSchema = z.object({
+	// Metadata
+	id: z.string(),
+	name: z.string(),
+	description: z.string().optional(),
+	type: z.enum(['public', 'semi-private', 'private']).default('public'),
+	language: z.string().default('en-US'),
+	encoding: z.string().default('UTF-8'),
+	requestdelay: z.number().optional(),
+
+	// URLs
+	links: z.array(z.string()),
+	legacylinks: z.array(z.string()).optional(),
+
+	// Behavior
+	followredirect: z.boolean().optional(),
+	testlinktorrent: z.boolean().optional(),
+	certificates: z.array(z.string()).optional(),
+
+	// User settings
+	settings: z.array(settingsFieldSchema).optional(),
+
+	// Capabilities
+	caps: capabilitiesBlockSchema,
+
+	// Authentication
+	login: loginBlockSchema.optional(),
+
+	// Ratio tracking
+	ratio: ratioBlockSchema.optional(),
+
+	// Search configuration
+	search: searchBlockSchema,
+
+	// Download configuration
+	download: downloadBlockSchema.optional()
+});
+
+export type YamlDefinition = z.infer<typeof yamlDefinitionSchema>;
+
+// Backwards compatibility alias
+export const cardigannDefinitionSchema = yamlDefinitionSchema;
+export type CardigannDefinition = YamlDefinition;
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+export type SafeParseResult =
+	| { success: true; data: YamlDefinition }
+	| { success: false; error: z.ZodError };
+
+export function validateYamlDefinition(data: unknown): YamlDefinition {
+	return yamlDefinitionSchema.parse(data);
+}
+
+// Backwards compatibility alias
+export const validateCardigannDefinition = validateYamlDefinition;
+
+export function safeValidateYamlDefinition(data: unknown): SafeParseResult {
+	return yamlDefinitionSchema.safeParse(data);
+}
+
+// Backwards compatibility alias
+export const safeValidateCardigannDefinition = safeValidateYamlDefinition;
+
+export function formatValidationError(error: z.ZodError): string {
+	return error.issues
+		.map((e) => {
+			const path = e.path.join('.');
+			return path ? `${path}: ${e.message}` : e.message;
+		})
+		.join('; ');
+}
+
+// ============================================================================
+// Standard Newznab Categories
+// ============================================================================
+
+export const NEWZNAB_CATEGORIES: Record<string, { id: number; name: string }> = {
+	// Console
+	Console: { id: 1000, name: 'Console' },
+	'Console/NDS': { id: 1010, name: 'Console/NDS' },
+	'Console/PSP': { id: 1020, name: 'Console/PSP' },
+	'Console/Wii': { id: 1030, name: 'Console/Wii' },
+	'Console/Xbox': { id: 1040, name: 'Console/Xbox' },
+	'Console/Xbox 360': { id: 1050, name: 'Console/Xbox 360' },
+	'Console/Wiiware': { id: 1060, name: 'Console/Wiiware' },
+	'Console/Xbox 360 DLC': { id: 1070, name: 'Console/Xbox 360 DLC' },
+	'Console/PS3': { id: 1080, name: 'Console/PS3' },
+	'Console/Other': { id: 1090, name: 'Console/Other' },
+	'Console/3DS': { id: 1110, name: 'Console/3DS' },
+	'Console/PS Vita': { id: 1120, name: 'Console/PS Vita' },
+	'Console/WiiU': { id: 1130, name: 'Console/WiiU' },
+	'Console/Xbox One': { id: 1140, name: 'Console/Xbox One' },
+	'Console/PS4': { id: 1180, name: 'Console/PS4' },
+
+	// Movies
+	Movies: { id: 2000, name: 'Movies' },
+	'Movies/Foreign': { id: 2010, name: 'Movies/Foreign' },
+	'Movies/Other': { id: 2020, name: 'Movies/Other' },
+	'Movies/SD': { id: 2030, name: 'Movies/SD' },
+	'Movies/HD': { id: 2040, name: 'Movies/HD' },
+	'Movies/UHD': { id: 2045, name: 'Movies/UHD' },
+	'Movies/BluRay': { id: 2050, name: 'Movies/BluRay' },
+	'Movies/3D': { id: 2060, name: 'Movies/3D' },
+	'Movies/DVD': { id: 2070, name: 'Movies/DVD' },
+	'Movies/WEB-DL': { id: 2080, name: 'Movies/WEB-DL' },
+
+	// Audio
+	Audio: { id: 3000, name: 'Audio' },
+	'Audio/MP3': { id: 3010, name: 'Audio/MP3' },
+	'Audio/Video': { id: 3020, name: 'Audio/Video' },
+	'Audio/Audiobook': { id: 3030, name: 'Audio/Audiobook' },
+	'Audio/Lossless': { id: 3040, name: 'Audio/Lossless' },
+	'Audio/Other': { id: 3050, name: 'Audio/Other' },
+	'Audio/Foreign': { id: 3060, name: 'Audio/Foreign' },
+
+	// PC
+	PC: { id: 4000, name: 'PC' },
+	'PC/0day': { id: 4010, name: 'PC/0day' },
+	'PC/ISO': { id: 4020, name: 'PC/ISO' },
+	'PC/Mac': { id: 4030, name: 'PC/Mac' },
+	'PC/Mobile-Other': { id: 4040, name: 'PC/Mobile-Other' },
+	'PC/Games': { id: 4050, name: 'PC/Games' },
+	'PC/Mobile-iOS': { id: 4060, name: 'PC/Mobile-iOS' },
+	'PC/Mobile-Android': { id: 4070, name: 'PC/Mobile-Android' },
+
+	// TV
+	TV: { id: 5000, name: 'TV' },
+	'TV/WEB-DL': { id: 5010, name: 'TV/WEB-DL' },
+	'TV/Foreign': { id: 5020, name: 'TV/Foreign' },
+	'TV/SD': { id: 5030, name: 'TV/SD' },
+	'TV/HD': { id: 5040, name: 'TV/HD' },
+	'TV/UHD': { id: 5045, name: 'TV/UHD' },
+	'TV/Other': { id: 5050, name: 'TV/Other' },
+	'TV/Sport': { id: 5060, name: 'TV/Sport' },
+	'TV/Anime': { id: 5070, name: 'TV/Anime' },
+	'TV/Documentary': { id: 5080, name: 'TV/Documentary' },
+
+	// XXX
+	XXX: { id: 6000, name: 'XXX' },
+	'XXX/DVD': { id: 6010, name: 'XXX/DVD' },
+	'XXX/WMV': { id: 6020, name: 'XXX/WMV' },
+	'XXX/XviD': { id: 6030, name: 'XXX/XviD' },
+	'XXX/x264': { id: 6040, name: 'XXX/x264' },
+	'XXX/UHD': { id: 6045, name: 'XXX/UHD' },
+	'XXX/Pack': { id: 6050, name: 'XXX/Pack' },
+	'XXX/ImageSet': { id: 6060, name: 'XXX/ImageSet' },
+	'XXX/Other': { id: 6070, name: 'XXX/Other' },
+	'XXX/SD': { id: 6080, name: 'XXX/SD' },
+	'XXX/WEB-DL': { id: 6090, name: 'XXX/WEB-DL' },
+
+	// Books
+	Books: { id: 7000, name: 'Books' },
+	'Books/Mags': { id: 7010, name: 'Books/Mags' },
+	'Books/EBook': { id: 7020, name: 'Books/EBook' },
+	'Books/Comics': { id: 7030, name: 'Books/Comics' },
+	'Books/Technical': { id: 7040, name: 'Books/Technical' },
+	'Books/Other': { id: 7050, name: 'Books/Other' },
+	'Books/Foreign': { id: 7060, name: 'Books/Foreign' },
+
+	// Other
+	Other: { id: 8000, name: 'Other' },
+	'Other/Misc': { id: 8010, name: 'Other/Misc' },
+	'Other/Hashed': { id: 8020, name: 'Other/Hashed' }
+};
+
+export function getCategoryByName(name: string): { id: number; name: string } | null {
+	return NEWZNAB_CATEGORIES[name] ?? null;
+}
+
+export function getCategoryById(id: number): { id: number; name: string } | null {
+	for (const cat of Object.values(NEWZNAB_CATEGORIES)) {
+		if (cat.id === id) return cat;
+	}
+	return null;
+}

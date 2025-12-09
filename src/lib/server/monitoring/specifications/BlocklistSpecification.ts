@@ -1,0 +1,233 @@
+/**
+ * BlocklistSpecification
+ *
+ * Checks if a release has been blocklisted (failed downloads, manual blocks, etc.)
+ * Prevents re-grabbing problematic releases.
+ *
+ * This specification is release-level - it's applied when evaluating individual
+ * releases during search, not at the item level.
+ */
+
+import { db } from '$lib/server/db/index.js';
+import { blocklist } from '$lib/server/db/schema.js';
+import { eq, or, and, gt, isNull, lte } from 'drizzle-orm';
+import { reject, accept } from './types.js';
+import type { SpecificationResult, ReleaseCandidate } from './types.js';
+
+/**
+ * Blocklist reasons
+ */
+export type BlocklistReason =
+	| 'download_failed'
+	| 'import_failed'
+	| 'quality_mismatch'
+	| 'manual'
+	| 'duplicate'
+	| 'bad_release';
+
+/**
+ * BlocklistService
+ *
+ * Singleton service for managing release blocklist
+ */
+class BlocklistService {
+	private static instance: BlocklistService;
+
+	static getInstance(): BlocklistService {
+		if (!BlocklistService.instance) {
+			BlocklistService.instance = new BlocklistService();
+		}
+		return BlocklistService.instance;
+	}
+
+	/**
+	 * Check if a release is blocklisted
+	 */
+	async isBlocklisted(
+		release: ReleaseCandidate,
+		options: {
+			movieId?: string;
+			seriesId?: string;
+		}
+	): Promise<{ blocked: boolean; reason?: string }> {
+		const now = new Date().toISOString();
+
+		// Build query conditions
+		const conditions = [];
+
+		// Check by info hash (most reliable)
+		if (release.infoHash) {
+			conditions.push(eq(blocklist.infoHash, release.infoHash));
+		}
+
+		// Check by source title (fallback for matching)
+		if (release.title) {
+			conditions.push(eq(blocklist.sourceTitle, release.title));
+		}
+
+		// If no identifying info, can't be blocklisted
+		if (conditions.length === 0) {
+			return { blocked: false };
+		}
+
+		// Query with content filter and expiration check
+		const entries = await db.query.blocklist.findMany({
+			where: and(
+				or(...conditions),
+				// Must match content type
+				options.movieId ? eq(blocklist.movieId, options.movieId) : undefined,
+				options.seriesId ? eq(blocklist.seriesId, options.seriesId) : undefined,
+				// Must not be expired
+				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now))
+			),
+			limit: 1
+		});
+
+		if (entries.length > 0) {
+			const entry = entries[0];
+			return {
+				blocked: true,
+				reason: `Blocklisted: ${entry.reason}${entry.message ? ` - ${entry.message}` : ''}`
+			};
+		}
+
+		return { blocked: false };
+	}
+
+	/**
+	 * Add a release to the blocklist
+	 */
+	async addToBlocklist(
+		release: {
+			title: string;
+			infoHash?: string;
+			indexerId?: string;
+			quality?: ReleaseCandidate['quality'];
+			size?: number;
+			protocol?: string;
+		},
+		options: {
+			movieId?: string;
+			seriesId?: string;
+			episodeIds?: string[];
+			reason: BlocklistReason;
+			message?: string;
+			expiresInHours?: number;
+		}
+	): Promise<string> {
+		const expiresAt = options.expiresInHours
+			? new Date(Date.now() + options.expiresInHours * 60 * 60 * 1000).toISOString()
+			: null;
+
+		const [entry] = await db
+			.insert(blocklist)
+			.values({
+				title: release.title,
+				infoHash: release.infoHash ?? null,
+				indexerId: release.indexerId ?? null,
+				movieId: options.movieId ?? null,
+				seriesId: options.seriesId ?? null,
+				episodeIds: options.episodeIds ?? null,
+				reason: options.reason,
+				message: options.message ?? null,
+				sourceTitle: release.title,
+				quality: release.quality ?? null,
+				size: release.size ?? null,
+				protocol: release.protocol ?? null,
+				expiresAt
+			})
+			.returning();
+
+		return entry.id;
+	}
+
+	/**
+	 * Remove a release from the blocklist
+	 */
+	async removeFromBlocklist(id: string): Promise<void> {
+		await db.delete(blocklist).where(eq(blocklist.id, id));
+	}
+
+	/**
+	 * Remove all blocklist entries for a movie
+	 */
+	async clearMovieBlocklist(movieId: string): Promise<void> {
+		await db.delete(blocklist).where(eq(blocklist.movieId, movieId));
+	}
+
+	/**
+	 * Remove all blocklist entries for a series
+	 */
+	async clearSeriesBlocklist(seriesId: string): Promise<void> {
+		await db.delete(blocklist).where(eq(blocklist.seriesId, seriesId));
+	}
+
+	/**
+	 * Get all blocklist entries
+	 */
+	async getBlocklist(options?: {
+		movieId?: string;
+		seriesId?: string;
+		limit?: number;
+		offset?: number;
+	}): Promise<(typeof blocklist.$inferSelect)[]> {
+		const query = options?.movieId
+			? eq(blocklist.movieId, options.movieId)
+			: options?.seriesId
+				? eq(blocklist.seriesId, options.seriesId)
+				: undefined;
+
+		return db.query.blocklist.findMany({
+			where: query,
+			limit: options?.limit ?? 100,
+			offset: options?.offset ?? 0,
+			orderBy: (blocklist, { desc }) => [desc(blocklist.createdAt)]
+		});
+	}
+
+	/**
+	 * Clean expired entries
+	 */
+	async cleanExpiredEntries(): Promise<number> {
+		const now = new Date().toISOString();
+		// Delete expired entries - expiresAt is not null and is less than now
+		await db.delete(blocklist).where(lte(blocklist.expiresAt, now));
+
+		// SQLite doesn't return count directly, return 0 as placeholder
+		return 0;
+	}
+}
+
+/**
+ * Export singleton instance
+ */
+export const blocklistService = BlocklistService.getInstance();
+
+/**
+ * MovieBlocklistSpecification
+ *
+ * Checks if a release is blocklisted for a specific movie.
+ * Used during release evaluation in the decision engine.
+ */
+export class ReleaseBlocklistSpecification {
+	private movieId?: string;
+	private seriesId?: string;
+
+	constructor(options: { movieId?: string; seriesId?: string }) {
+		this.movieId = options.movieId;
+		this.seriesId = options.seriesId;
+	}
+
+	async isSatisfied(release: ReleaseCandidate): Promise<SpecificationResult> {
+		const result = await blocklistService.isBlocklisted(release, {
+			movieId: this.movieId,
+			seriesId: this.seriesId
+		});
+
+		if (result.blocked) {
+			return reject(result.reason || 'Release is blocklisted');
+		}
+
+		return accept();
+	}
+}

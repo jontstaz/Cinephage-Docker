@@ -67,10 +67,14 @@ export const POST: RequestHandler = async ({ params }) => {
 
 					const existingSeason = seasonMap.get(tmdbSeasonInfo.season_number);
 					let seasonId: string;
+					let seasonMonitored: boolean;
 
 					if (existingSeason) {
 						// Update existing season
 						seasonId = existingSeason.id;
+						// Default to true for non-specials if monitored is null
+						seasonMonitored =
+							existingSeason.monitored ?? tmdbSeasonInfo.season_number !== 0;
 						await db
 							.update(seasons)
 							.set({
@@ -82,7 +86,14 @@ export const POST: RequestHandler = async ({ params }) => {
 							})
 							.where(eq(seasons.id, seasonId));
 					} else {
-						// Create new season
+						// Create new season - respect monitorNewItems setting
+						const isSpecials = tmdbSeasonInfo.season_number === 0;
+						const monitorSpecials = seriesData.monitorSpecials ?? false;
+						seasonMonitored =
+							seriesData.monitorNewItems === 'all'
+								? !isSpecials || monitorSpecials
+								: false;
+
 						const [newSeason] = await db
 							.insert(seasons)
 							.values({
@@ -94,7 +105,7 @@ export const POST: RequestHandler = async ({ params }) => {
 								airDate: tmdbSeason.air_date || tmdbSeasonInfo.air_date,
 								episodeCount: tmdbSeason.episodes?.length ?? tmdbSeasonInfo.episode_count ?? 0,
 								episodeFileCount: 0,
-								monitored: tmdbSeasonInfo.season_number !== 0
+								monitored: seasonMonitored
 							})
 							.returning();
 						seasonId = newSeason.id;
@@ -120,7 +131,12 @@ export const POST: RequestHandler = async ({ params }) => {
 									})
 									.where(eq(episodes.id, existingEpisode.id));
 							} else {
-								// Create new episode
+								// Create new episode - respect monitorNewItems setting
+								// New episodes inherit monitored status from their season,
+								// but only if monitorNewItems is 'all'
+								const shouldMonitorNewEpisode =
+									seriesData.monitorNewItems === 'all' ? seasonMonitored : false;
+
 								await db.insert(episodes).values({
 									seriesId: id,
 									seasonId,
@@ -131,7 +147,7 @@ export const POST: RequestHandler = async ({ params }) => {
 									overview: ep.overview,
 									airDate: ep.air_date,
 									runtime: ep.runtime,
-									monitored: tmdbSeasonInfo.season_number !== 0,
+									monitored: shouldMonitorNewEpisode,
 									hasFile: false
 								});
 							}

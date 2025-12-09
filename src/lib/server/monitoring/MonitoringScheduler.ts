@@ -153,7 +153,7 @@ export class MonitoringScheduler extends EventEmitter {
 	/**
 	 * Get monitoring settings from database
 	 */
-	private async getSettings(): Promise<MonitoringSettings> {
+	async getSettings(): Promise<MonitoringSettings> {
 		const settings = await db.select().from(monitoringSettings);
 
 		const settingsMap = new Map(settings.map((s) => [s.key, s.value]));

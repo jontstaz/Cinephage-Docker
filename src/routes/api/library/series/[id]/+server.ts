@@ -14,6 +14,8 @@ import { unlink, rmdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { logger } from '$lib/logging';
 import { getLanguageProfileService } from '$lib/server/subtitles/services/LanguageProfileService.js';
+import { searchOnAdd } from '$lib/server/library/searchOnAdd.js';
+import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
 
 /**
  * GET /api/library/series/[id]
@@ -164,6 +166,17 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			languageProfileId
 		} = body;
 
+		// Get current series state BEFORE update to detect monitoring changes
+		let wasUnmonitored = false;
+		if (typeof monitored === 'boolean' && monitored === true) {
+			const [currentSeries] = await db
+				.select({ monitored: series.monitored })
+				.from(series)
+				.where(eq(series.id, params.id));
+
+			wasUnmonitored = currentSeries ? !currentSeries.monitored : false;
+		}
+
 		const updateData: Record<string, unknown> = {};
 
 		if (typeof monitored === 'boolean') {
@@ -190,6 +203,25 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 		}
 
 		await db.update(series).set(updateData).where(eq(series.id, params.id));
+
+		// If monitoring was just enabled, check if we should trigger a search
+		if (wasUnmonitored && monitored === true) {
+			const settings = await monitoringScheduler.getSettings();
+
+			if (settings.searchOnMonitorEnabled) {
+				// Fire and forget - don't block the response
+				searchOnAdd.searchForMissingEpisodes(params.id).catch((err) => {
+					logger.error('[API] Background search on monitor enable failed', {
+						seriesId: params.id,
+						error: err instanceof Error ? err.message : 'Unknown error'
+					});
+				});
+
+				logger.info('[API] Triggered search on monitor enable for series', {
+					seriesId: params.id
+				});
+			}
+		}
 
 		return json({ success: true });
 	} catch (error) {

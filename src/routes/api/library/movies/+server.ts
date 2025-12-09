@@ -10,6 +10,7 @@ import { searchOnAdd } from '$lib/server/library/searchOnAdd.js';
 import { qualityFilter } from '$lib/server/quality/index.js';
 import { ValidationError, NotFoundError, ExternalServiceError } from '$lib/errors';
 import { logger } from '$lib/logging';
+import { SearchWorker, workerManager } from '$lib/server/workers/index.js';
 
 /**
  * Schema for adding a movie to the library
@@ -232,19 +233,54 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Trigger search if requested and movie is monitored
 		let searchTriggered = false;
 		if (shouldSearch && monitored) {
+			// Create a search worker to run in the background with tracking
+			const worker = new SearchWorker({
+				mediaType: 'movie',
+				mediaId: newMovie.id,
+				title: movieDetails.title,
+				tmdbId,
+				searchFn: async () => {
+					const result = await searchOnAdd.searchForMovie({
+						movieId: newMovie.id,
+						tmdbId,
+						imdbId,
+						title: movieDetails.title,
+						year,
+						scoringProfileId: scoringProfileId || undefined
+					});
+					return {
+						searched: 1,
+						found: result.success ? 1 : 0,
+						grabbed: result.success ? 1 : 0
+					};
+				}
+			});
+
 			try {
-				await searchOnAdd.searchForMovie({
-					movieId: newMovie.id,
-					tmdbId,
-					imdbId,
-					title: movieDetails.title,
-					year,
-					scoringProfileId: scoringProfileId || undefined
-				});
+				workerManager.spawnInBackground(worker);
 				searchTriggered = true;
-			} catch {
-				logger.warn('[API] Failed to trigger search on add for movie', { movieId: newMovie.id });
-				// Don't fail the add operation if search fails
+			} catch (error) {
+				// Concurrency limit reached - fall back to fire and forget
+				logger.warn('[API] Could not create search worker, running directly', {
+					movieId: newMovie.id,
+					error: error instanceof Error ? error.message : 'Unknown error'
+				});
+				searchOnAdd
+					.searchForMovie({
+						movieId: newMovie.id,
+						tmdbId,
+						imdbId,
+						title: movieDetails.title,
+						year,
+						scoringProfileId: scoringProfileId || undefined
+					})
+					.catch((err) => {
+						logger.warn('[API] Background search failed for movie', {
+							movieId: newMovie.id,
+							error: err instanceof Error ? err.message : 'Unknown error'
+						});
+					});
+				searchTriggered = true;
 			}
 		}
 

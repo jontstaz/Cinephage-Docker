@@ -14,7 +14,8 @@ export type {
 	StreamWorkerMetadata,
 	ImportWorkerMetadata,
 	ScanWorkerMetadata,
-	MonitoringWorkerMetadata
+	MonitoringWorkerMetadata,
+	SearchWorkerMetadata
 } from './types.js';
 
 export { DEFAULT_WORKER_CONFIG, workerTypeToLogCategory } from './types.js';
@@ -28,3 +29,4 @@ export { workerManager, ConcurrencyLimitError } from './WorkerManager.js';
 // Worker implementations
 export { StreamWorker, streamWorkerRegistry, type StreamWorkerOptions } from './StreamWorker.js';
 export { ImportWorker, type ImportWorkerOptions } from './ImportWorker.js';
+export { SearchWorker, type SearchWorkerOptions, type SearchResult } from './SearchWorker.js';

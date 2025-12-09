@@ -69,6 +69,35 @@ export const PLAYLIST_CACHE_MAX_AGE = 300;
 /** Cache max-age for HLS segments in seconds (1 hour) */
 export const SEGMENT_CACHE_MAX_AGE = 3600;
 
+/** Proxy fetch timeout in milliseconds (default 30s) */
+export const PROXY_FETCH_TIMEOUT_MS = parseInt(
+	process.env.PROXY_FETCH_TIMEOUT_MS || '30000',
+	10
+);
+
+/** Maximum segment size in bytes (default 50MB) */
+export const PROXY_SEGMENT_MAX_SIZE = parseInt(
+	process.env.PROXY_SEGMENT_MAX_SIZE || String(50 * 1024 * 1024),
+	10
+);
+
+/** Maximum retry attempts for proxy fetches on 5xx errors */
+export const PROXY_MAX_RETRIES = parseInt(process.env.PROXY_MAX_RETRIES || '2', 10);
+
+/** Default referer for proxy requests */
+export const DEFAULT_PROXY_REFERER =
+	process.env.DEFAULT_PROXY_REFERER || 'https://videasy.net';
+
+/** Referer mappings for different stream domains */
+export const PROXY_REFERER_MAP: Record<string, string> = {
+	vidlink: 'https://vidlink.pro',
+	vidsrc: 'https://vidsrc.to',
+	videasy: 'https://videasy.net',
+	hexa: 'https://hexawatch.to',
+	smashystream: 'https://smashystream.top',
+	xprime: 'https://xprime.tv'
+};
+
 // =============================================================================
 // EncDec API Configuration
 // =============================================================================
@@ -97,10 +126,34 @@ export const PROVIDER_QUICK_TIMEOUT_MS = 8000;
 // =============================================================================
 
 /** Maximum consecutive failures before circuit opens */
-export const CIRCUIT_BREAKER_THRESHOLD = 3;
+export const CIRCUIT_BREAKER_THRESHOLD = parseInt(
+	process.env.PROVIDER_MAX_FAILURES || '3',
+	10
+);
 
-/** Time in milliseconds before circuit breaker resets */
-export const CIRCUIT_BREAKER_RESET_MS = 60000;
+/** Time in milliseconds before circuit breaker enters half-open state */
+export const CIRCUIT_BREAKER_HALF_OPEN_MS = parseInt(
+	process.env.PROVIDER_CIRCUIT_HALF_OPEN_MS || '30000',
+	10
+);
+
+/** Time in milliseconds before circuit breaker fully resets */
+export const CIRCUIT_BREAKER_RESET_MS = parseInt(
+	process.env.PROVIDER_CIRCUIT_RESET_MS || '60000',
+	10
+);
+
+/** TTL for provider result cache entries in milliseconds */
+export const PROVIDER_RESULT_CACHE_TTL_MS = parseInt(
+	process.env.PROVIDER_CACHE_TTL_MS || '30000',
+	10
+);
+
+/** Number of providers to try in parallel mode */
+export const PROVIDER_PARALLEL_COUNT = parseInt(
+	process.env.PROVIDER_PARALLEL_COUNT || '3',
+	10
+);
 
 // =============================================================================
 // Legacy Provider Configuration (Deprecated)

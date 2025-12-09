@@ -8,7 +8,7 @@ import type { LogCategory } from '$lib/logging';
 /**
  * Types of workers supported by the system.
  */
-export type WorkerType = 'stream' | 'import' | 'scan' | 'monitoring';
+export type WorkerType = 'stream' | 'import' | 'scan' | 'monitoring' | 'search';
 
 /**
  * Worker lifecycle status.
@@ -70,7 +70,8 @@ export const DEFAULT_WORKER_CONFIG: WorkerManagerConfig = {
 		stream: parseInt(process.env.WORKER_MAX_STREAMS || '10', 10) || 10,
 		import: parseInt(process.env.WORKER_MAX_IMPORTS || '5', 10) || 5,
 		scan: parseInt(process.env.WORKER_MAX_SCANS || '2', 10) || 2,
-		monitoring: parseInt(process.env.WORKER_MAX_MONITORING || '5', 10) || 5
+		monitoring: parseInt(process.env.WORKER_MAX_MONITORING || '5', 10) || 5,
+		search: parseInt(process.env.WORKER_MAX_SEARCH || '3', 10) || 3
 	},
 	cleanupAfterMs: parseInt(process.env.WORKER_CLEANUP_MS || '1800000', 10) || 1800000, // 30 minutes
 	maxLogsPerWorker: parseInt(process.env.WORKER_MAX_LOGS || '1000', 10) || 1000
@@ -102,6 +103,8 @@ export function workerTypeToLogCategory(type: WorkerType): LogCategory {
 			return 'scans';
 		case 'monitoring':
 			return 'monitoring';
+		case 'search':
+			return 'indexers';
 		default:
 			return 'main';
 	}
@@ -156,5 +159,19 @@ export interface MonitoringWorkerMetadata {
 	itemsProcessed: number;
 	itemsFound: number;
 	downloadsTriggered: number;
+	[key: string]: unknown;
+}
+
+/**
+ * Search worker specific metadata.
+ */
+export interface SearchWorkerMetadata {
+	mediaType: 'movie' | 'series';
+	mediaId: string;
+	title: string;
+	tmdbId: number;
+	itemsSearched: number;
+	itemsFound: number;
+	itemsGrabbed: number;
 	[key: string]: unknown;
 }

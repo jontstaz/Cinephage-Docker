@@ -5,12 +5,27 @@
  * This is essential for streams which require the referer header
  * on ALL requests (master.txt, playlists, and segments).
  *
+ * Features:
+ * - SSRF protection (blocks private IPs)
+ * - Timeout handling (configurable, default 30s)
+ * - Content size limits (configurable, default 50MB)
+ * - Retry logic for transient 5xx errors
+ * - Domain-based referer inference
+ *
  * GET /api/streaming/proxy?url=<encoded_url>&referer=<encoded_referer>
  */
 
 import type { RequestHandler } from './$types';
 import { getBaseUrlAsync } from '$lib/server/streaming';
 import { logger } from '$lib/logging';
+import {
+	PROXY_FETCH_TIMEOUT_MS,
+	PROXY_SEGMENT_MAX_SIZE,
+	PROXY_MAX_RETRIES,
+	DEFAULT_PROXY_REFERER,
+	PROXY_REFERER_MAP
+} from '$lib/server/streaming/constants';
+import { validatePlaylist, sanitizePlaylist, isHLSPlaylist } from '$lib/server/streaming/hls';
 
 // Security constants
 const MAX_REDIRECTS = 5;
@@ -35,6 +50,96 @@ const PRIVATE_IP_PATTERNS = [
 ];
 
 const BLOCKED_HOSTNAMES = ['localhost', 'localhost.localdomain', '[::1]', '0.0.0.0'];
+
+const streamLog = { logCategory: 'streams' as const };
+
+/**
+ * Infer the appropriate referer based on stream URL domain
+ */
+function inferReferer(url: string): string {
+	try {
+		const hostname = new URL(url).hostname.toLowerCase();
+		for (const [key, referer] of Object.entries(PROXY_REFERER_MAP)) {
+			if (hostname.includes(key)) {
+				return referer;
+			}
+		}
+	} catch {
+		// Ignore parse errors
+	}
+	return DEFAULT_PROXY_REFERER;
+}
+
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(
+	url: string,
+	options: RequestInit,
+	timeoutMs: number = PROXY_FETCH_TIMEOUT_MS
+): Promise<Response> {
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+	try {
+		return await fetch(url, {
+			...options,
+			signal: controller.signal
+		});
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
+/**
+ * Fetch with retry logic for transient 5xx errors
+ */
+async function fetchWithRetry(
+	url: string,
+	options: RequestInit,
+	maxRetries: number = PROXY_MAX_RETRIES
+): Promise<Response> {
+	let lastError: Error | null = null;
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			const response = await fetchWithTimeout(url, options);
+
+			// Only retry on 5xx server errors
+			if (response.status >= 500 && attempt < maxRetries) {
+				logger.debug('Proxy retrying after 5xx', {
+					url: url.substring(0, 100),
+					status: response.status,
+					attempt: attempt + 1,
+					...streamLog
+				});
+				await new Promise((r) => setTimeout(r, 100 * Math.pow(2, attempt)));
+				continue;
+			}
+
+			return response;
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+
+			// Don't retry on abort (timeout) - those are intentional
+			if (lastError.name === 'AbortError') {
+				throw new Error(`Proxy timeout after ${PROXY_FETCH_TIMEOUT_MS}ms`);
+			}
+
+			if (attempt < maxRetries) {
+				logger.debug('Proxy retrying after error', {
+					url: url.substring(0, 100),
+					error: lastError.message,
+					attempt: attempt + 1,
+					...streamLog
+				});
+				await new Promise((r) => setTimeout(r, 100 * Math.pow(2, attempt)));
+			}
+		}
+	}
+
+	throw lastError ?? new Error('Fetch failed after retries');
+}
 
 /**
  * Validates that a URL is safe to proxy (not internal/private network)
@@ -74,7 +179,6 @@ function isUrlSafe(urlString: string): { safe: boolean; reason?: string } {
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const targetUrl = url.searchParams.get('url');
-	const referer = url.searchParams.get('referer') || 'https://videasy.net';
 	const baseUrl = await getBaseUrlAsync(request);
 
 	if (!targetUrl) {
@@ -84,9 +188,12 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		});
 	}
 
-	try {
-		const decodedUrl = decodeURIComponent(targetUrl);
+	const decodedUrl = decodeURIComponent(targetUrl);
 
+	// Use provided referer, or infer from stream URL domain
+	const referer = url.searchParams.get('referer') || inferReferer(decodedUrl);
+
+	try {
 		// SSRF protection: validate URL is safe before proxying
 		const safetyCheck = isUrlSafe(decodedUrl);
 		if (!safetyCheck.safe) {
@@ -131,7 +238,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 				);
 			}
 
-			response = await fetch(currentUrl, {
+			response = await fetchWithRetry(currentUrl, {
 				headers,
 				redirect: 'manual'
 			});
@@ -177,6 +284,29 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		}
 
 		const contentType = response.headers.get('content-type') || '';
+
+		// Check content length before reading into memory
+		const contentLength = response.headers.get('content-length');
+		if (contentLength) {
+			const size = parseInt(contentLength, 10);
+			if (size > PROXY_SEGMENT_MAX_SIZE) {
+				logger.warn('Segment too large', {
+					url: decodedUrl.substring(0, 100),
+					size,
+					maxSize: PROXY_SEGMENT_MAX_SIZE,
+					...streamLog
+				});
+				return new Response(
+					JSON.stringify({
+						error: 'Segment too large',
+						size,
+						maxSize: PROXY_SEGMENT_MAX_SIZE
+					}),
+					{ status: 413, headers: { 'Content-Type': 'application/json' } }
+				);
+			}
+		}
+
 		const arrayBuffer = await response.arrayBuffer();
 		const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4));
 		const isMpegTs = firstBytes[0] === 0x47;
@@ -191,7 +321,52 @@ export const GET: RequestHandler = async ({ url, request }) => {
 				(contentType.includes('text') && !decodedUrl.includes('.html')));
 
 		if (isPlaylist) {
-			const text = new TextDecoder().decode(arrayBuffer);
+			let text = new TextDecoder().decode(arrayBuffer);
+
+			// Validate and sanitize the HLS playlist
+			if (isHLSPlaylist(text)) {
+				const validation = validatePlaylist(text);
+
+				if (!validation.valid) {
+					// Try sanitization first
+					const sanitized = sanitizePlaylist(text);
+					const revalidation = validatePlaylist(sanitized);
+
+					if (revalidation.valid) {
+						logger.debug('HLS playlist sanitized successfully', {
+							url: decodedUrl.substring(0, 100),
+							originalErrors: validation.errors,
+							...streamLog
+						});
+						text = sanitized;
+					} else {
+						// Still invalid after sanitization - return error
+						logger.warn('HLS playlist validation failed', {
+							url: decodedUrl.substring(0, 100),
+							errors: validation.errors,
+							...streamLog
+						});
+						return new Response(
+							JSON.stringify({
+								error: 'Invalid HLS playlist',
+								details: validation.errors
+							}),
+							{ status: 502, headers: { 'Content-Type': 'application/json' } }
+						);
+					}
+				}
+
+				// Log warnings for valid but potentially problematic playlists
+				if (validation.warnings.length > 0) {
+					logger.debug('HLS playlist warnings', {
+						url: decodedUrl.substring(0, 100),
+						warnings: validation.warnings,
+						type: validation.type,
+						...streamLog
+					});
+				}
+			}
+
 			const rewrittenPlaylist = rewritePlaylistUrls(text, decodedUrl, baseUrl, referer);
 			// Ensure VOD markers are present so players start from beginning
 			const vodPlaylist = ensureVodPlaylist(rewrittenPlaylist);

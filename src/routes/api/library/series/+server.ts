@@ -9,6 +9,7 @@ import { namingService, type MediaNamingInfo } from '$lib/server/library/naming/
 import { searchOnAdd } from '$lib/server/library/searchOnAdd.js';
 import { qualityFilter } from '$lib/server/quality/index.js';
 import { logger } from '$lib/logging';
+import { SearchWorker, workerManager } from '$lib/server/workers/index.js';
 
 /**
  * Schema for adding a series to the library
@@ -36,7 +37,8 @@ const addSeriesSchema = z.object({
 	monitorNewItems: z.enum(['all', 'none']).default('all'),
 	monitorSpecials: z.boolean().default(false),
 	monitoredSeasons: z.array(z.number().int()).optional(),
-	searchOnAdd: z.boolean().default(true)
+	searchOnAdd: z.boolean().default(true),
+	wantsSubtitles: z.boolean().default(true)
 });
 
 /**
@@ -142,7 +144,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			monitorNewItems,
 			monitorSpecials,
 			monitoredSeasons: selectedSeasons,
-			searchOnAdd: shouldSearch
+			searchOnAdd: shouldSearch,
+			wantsSubtitles
 		} = result.data;
 
 		// Check if series already exists
@@ -236,7 +239,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				seasonFolder,
 				seriesType,
 				episodeCount: totalEpisodes,
-				episodeFileCount: 0
+				episodeFileCount: 0,
+				wantsSubtitles
 			})
 			.returning();
 
@@ -374,22 +378,41 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Trigger search if requested and series is monitored
 		let searchTriggered = false;
-		if (shouldSearch && monitored) {
+		if (shouldSearch && monitored && monitorType !== 'none') {
+			// Create a search worker to run in the background with tracking
+			const worker = new SearchWorker({
+				mediaType: 'series',
+				mediaId: newSeries.id,
+				title: tvDetails.name,
+				tmdbId,
+				searchFn: async () => {
+					const result = await searchOnAdd.searchForMissingEpisodes(newSeries.id);
+					return {
+						searched: result.summary.searched,
+						found: result.summary.found,
+						grabbed: result.summary.grabbed
+					};
+				}
+			});
+
 			try {
-				await searchOnAdd.searchForSeries({
-					seriesId: newSeries.id,
-					tmdbId,
-					tvdbId,
-					imdbId,
-					title: tvDetails.name,
-					year,
-					scoringProfileId: scoringProfileId || undefined,
-					monitorType
-				});
+				workerManager.spawnInBackground(worker);
 				searchTriggered = true;
-			} catch {
-				logger.warn('[API] Failed to trigger search on add for series', { seriesId: newSeries.id });
-				// Don't fail the add operation if search fails
+			} catch (error) {
+				// Concurrency limit reached - fall back to fire and forget
+				logger.warn('[API] Could not create search worker, running directly', {
+					seriesId: newSeries.id,
+					error: error instanceof Error ? error.message : 'Unknown error'
+				});
+				searchOnAdd
+					.searchForMissingEpisodes(newSeries.id)
+					.catch((err) => {
+						logger.warn('[API] Background search failed for series', {
+							seriesId: newSeries.id,
+							error: err instanceof Error ? err.message : 'Unknown error'
+						});
+					});
+				searchTriggered = true;
 			}
 		}
 

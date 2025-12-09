@@ -749,6 +749,93 @@ export function getProvidersHealth(): ProviderHealth[] {
 	return getAllProviderHealth();
 }
 
+// ============================================================================
+// Status & Monitoring Exports
+// ============================================================================
+
+/**
+ * Provider status for monitoring
+ */
+export interface ProviderStatus {
+	id: StreamingProviderId;
+	name: string;
+	enabled: boolean;
+	circuitBreaker: {
+		isOpen: boolean;
+		isHalfOpen: boolean;
+		failures: number;
+		resetAt?: number;
+	};
+	health: ProviderHealth;
+	score: number;
+}
+
+/**
+ * Get circuit breaker states for all providers
+ */
+export function getCircuitBreakerStates(): Map<StreamingProviderId, ExtendedCircuitState> {
+	initializeProviders();
+	const states = new Map<StreamingProviderId, ExtendedCircuitState>();
+	for (const providerId of DEFAULT_PROVIDER_ORDER) {
+		states.set(providerId, getCircuitState(providerId));
+	}
+	return states;
+}
+
+/**
+ * Manually reset a provider's circuit breaker
+ */
+export function resetCircuitBreaker(providerId: StreamingProviderId): boolean {
+	const provider = getProvider(providerId);
+	if (!provider) return false;
+
+	extendedCircuitBreakers.set(providerId, { failures: 0, isOpen: false });
+	const timer = resetTimers.get(providerId);
+	if (timer) {
+		clearTimeout(timer);
+		resetTimers.delete(providerId);
+	}
+
+	logger.info('Circuit breaker manually reset', { provider: providerId, ...streamLog });
+	return true;
+}
+
+/**
+ * Get comprehensive status for all providers
+ */
+export function getAllProviderStatus(): ProviderStatus[] {
+	initializeProviders();
+	const healthTracker = getHealthTracker();
+
+	return DEFAULT_PROVIDER_ORDER.map((id) => {
+		const provider = getProvider(id);
+		const circuitState = getCircuitState(id);
+		const health = healthTracker.getHealth(id);
+		const score = healthTracker.getProviderScore(id);
+
+		return {
+			id,
+			name: provider?.config.name ?? id,
+			enabled: provider?.config.enabledByDefault ?? false,
+			circuitBreaker: {
+				isOpen: circuitState.isOpen,
+				isHalfOpen: circuitState.isHalfOpen ?? false,
+				failures: circuitState.failures,
+				resetAt: circuitState.resetAt
+			},
+			health,
+			score
+		};
+	});
+}
+
+/**
+ * Get list of provider IDs
+ */
+export function getProviderIds(): StreamingProviderId[] {
+	return [...DEFAULT_PROVIDER_ORDER];
+}
+
 // Re-export types
 export type { StreamingProviderId, ExtractOptions, ProviderResult, StreamResult } from './types';
 export { BaseProvider } from './base';

@@ -49,6 +49,9 @@ export interface StreamSource {
 	/** Server/source name within the provider */
 	server?: string;
 
+	/** Language of the content (ISO 639-1 code) */
+	language?: string;
+
 	/** Associated subtitle tracks */
 	subtitles?: SubtitleTrack[];
 

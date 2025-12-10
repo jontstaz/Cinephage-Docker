@@ -9,6 +9,7 @@
 import type { RequestHandler } from './$types';
 import { fetchPlaylist } from '$lib/server/streaming/utils';
 import { StreamWorker, streamWorkerRegistry, workerManager } from '$lib/server/workers';
+import { getPreferredLanguagesForSeries } from '$lib/server/streaming/language-profile-helper';
 
 /** Create JSON error response */
 function errorResponse(message: string, code: string, status: number): Response {
@@ -106,6 +107,14 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			// TMDB lookup failed - extraction can still work for non-anime providers
 		}
 
+		// Get user's preferred languages for stream selection
+		let preferredLanguages: string[] = [];
+		try {
+			preferredLanguages = await getPreferredLanguagesForSeries(tmdbIdNum);
+		} catch {
+			// Language profile lookup failed - continue without language preference
+		}
+
 		// Extract streams from providers
 		const result = await extractStreams({
 			tmdbId,
@@ -115,7 +124,8 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			imdbId,
 			title,
 			year,
-			alternativeTitles
+			alternativeTitles,
+			preferredLanguages
 		});
 
 		if (!result.success || result.sources.length === 0) {

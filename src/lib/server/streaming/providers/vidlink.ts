@@ -85,6 +85,7 @@ export class VidlinkProvider extends BaseProvider {
 			this.createStreamResult(response.stream.playlist, {
 				quality: 'Auto',
 				title: 'Vidlink Stream',
+				language: 'en', // Vidlink sources English-language content
 				subtitles
 			})
 		];

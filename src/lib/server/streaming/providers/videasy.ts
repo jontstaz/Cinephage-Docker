@@ -11,6 +11,7 @@
 
 import { logger } from '$lib/logging';
 import { BaseProvider } from './base';
+import { prioritizeServersByLanguage } from './language-utils';
 import type { ProviderConfig, SearchParams, ServerConfig, StreamResult } from './types';
 
 const streamLog = { logCategory: 'streams' as const };
@@ -95,39 +96,61 @@ export class VideasyProvider extends BaseProvider {
 	};
 
 	protected async doExtract(params: SearchParams): Promise<StreamResult[]> {
-		const results: StreamResult[] = [];
-
 		// Filter servers based on content type
-		const availableServers = VIDEASY_SERVERS.filter((server) => {
+		let availableServers = VIDEASY_SERVERS.filter((server) => {
 			if (server.movieOnly && params.type === 'tv') return false;
 			if (server.tvOnly && params.type === 'movie') return false;
 			return true;
 		});
 
+		// Prioritize servers by user's language preferences
+		if (params.preferredLanguages?.length) {
+			availableServers = prioritizeServersByLanguage(availableServers, params.preferredLanguages);
+		}
+
 		// Try to get title from params or use a default
 		const title = params.title ?? '';
 		const year = params.year?.toString() ?? '';
 
-		// Try each server (limit concurrency to avoid rate limiting)
-		for (const server of availableServers) {
+		// Try top 4 servers in parallel for speed, prioritized by language
+		const topServers = availableServers.slice(0, 4);
+
+		const extractionPromises = topServers.map(async (server) => {
 			try {
-				const stream = await this.extractFromServer(server, params, title, year);
-				if (stream) {
-					results.push(stream);
-				}
+				return await this.extractFromServer(server, params, title, year);
 			} catch (error) {
 				logger.debug('Server extraction failed', {
 					server: server.id,
 					error: error instanceof Error ? error.message : String(error),
 					...streamLog
 				});
+				return null;
 			}
+		});
 
-			// Early exit if we found streams
-			if (results.length >= 3) break;
+		// Wait for all parallel extractions and filter successful ones
+		const results = (await Promise.all(extractionPromises)).filter(
+			(r): r is StreamResult => r !== null
+		);
+
+		// If we got results, return them (already sorted by language priority)
+		if (results.length > 0) {
+			return results;
 		}
 
-		return results;
+		// Fallback: try remaining servers sequentially if top 4 failed
+		for (const server of availableServers.slice(4)) {
+			try {
+				const stream = await this.extractFromServer(server, params, title, year);
+				if (stream) {
+					return [stream];
+				}
+			} catch {
+				// Continue to next server
+			}
+		}
+
+		return [];
 	}
 
 	private async extractFromServer(

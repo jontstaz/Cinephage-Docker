@@ -12,6 +12,7 @@ import { logger } from '$lib/logging';
 import { getEncDecClient } from '../enc-dec';
 import type { ExtractionResult, StreamSource } from '../types';
 import { getHealthTracker, getAllProviderHealth, type ProviderHealth } from './health';
+import { sortStreamsByLanguage } from './language-utils';
 // BaseProvider re-exported at bottom of file
 import type {
 	CircuitBreakerState,
@@ -338,6 +339,7 @@ function toStreamSource(result: StreamResult, _providerId: StreamingProviderId):
 		requiresSegmentProxy: true, // Always proxy for safety
 		status: 'working',
 		server: result.server,
+		language: result.language,
 		subtitles: result.subtitles,
 		headers: result.headers
 	};
@@ -345,11 +347,22 @@ function toStreamSource(result: StreamResult, _providerId: StreamingProviderId):
 
 /**
  * Convert ProviderResult to ExtractionResult (backward compatibility)
+ * Optionally sorts sources by language preference
  */
-function toExtractionResult(result: ProviderResult): ExtractionResult {
+function toExtractionResult(
+	result: ProviderResult,
+	preferredLanguages?: string[]
+): ExtractionResult {
+	let sources = result.streams.map((s) => toStreamSource(s, result.provider));
+
+	// Sort sources by language preference if provided
+	if (preferredLanguages?.length) {
+		sources = sortStreamsByLanguage(sources, preferredLanguages);
+	}
+
 	return {
 		success: result.success,
-		sources: result.streams.map((s) => toStreamSource(s, result.provider)),
+		sources,
 		error: result.error,
 		provider: result.provider
 	};
@@ -466,7 +479,7 @@ async function doSequentialExtraction(
 				...streamLog
 			});
 			recordSuccess(providerId, durationMs);
-			return toExtractionResult(result);
+			return toExtractionResult(result, options.preferredLanguages);
 		}
 
 		recordFailure(providerId, durationMs);
@@ -573,7 +586,7 @@ async function doParallelExtraction(
 			...streamLog
 		});
 
-		return toExtractionResult(winner.result);
+		return toExtractionResult(winner.result, options.preferredLanguages);
 	} catch {
 		// All providers failed - collect errors
 		const results = await Promise.all(promises);
@@ -650,10 +663,11 @@ async function doExtraction(options: ExtractOptions): Promise<ExtractionResult> 
 			recordFailure(options.provider, durationMs);
 		}
 
-		return toExtractionResult(result);
+		return toExtractionResult(result, options.preferredLanguages);
 	}
 
 	// Use parallel extraction for faster results
+	// Language preferences are handled by sorting results after extraction
 	if (options.parallel !== false && enabledProviders.length >= 2) {
 		return doParallelExtraction(options, enabledProviders);
 	}

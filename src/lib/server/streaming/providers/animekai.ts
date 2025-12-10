@@ -52,7 +52,7 @@ export class AnimeKaiProvider extends BaseProvider {
 		id: 'animekai',
 		name: 'AnimeKai',
 		priority: 90,
-		enabledByDefault: false, // Requires content ID lookup - enable when needed
+		enabledByDefault: true, // Enabled for anime with dub/sub support
 		supportsMovies: false, // Anime only
 		supportsTv: false, // Set to false as it's anime-specific
 		supportsAnime: true,
@@ -182,8 +182,17 @@ export class AnimeKaiProvider extends BaseProvider {
 		// Step 4: Parse HTML to get server ID
 		const servers = await this.encDec.parseHtml<ParsedHtml>(serversResp.result);
 
-		// Try sub servers first, then dub
-		const lid = servers['sub']?.['1']?.lid || servers['dub']?.['1']?.lid;
+		// Determine dub/sub preference based on user's language settings
+		// If user prefers English (en), try dub first; otherwise prefer sub (original Japanese)
+		const prefersDub = params.preferredLanguages?.includes('en');
+		const lid = prefersDub
+			? servers['dub']?.['1']?.lid || servers['sub']?.['1']?.lid
+			: servers['sub']?.['1']?.lid || servers['dub']?.['1']?.lid;
+
+		// Track which type we're using for logging
+		const isDub = prefersDub
+			? !!servers['dub']?.['1']?.lid
+			: !servers['sub']?.['1']?.lid && !!servers['dub']?.['1']?.lid;
 
 		if (!lid) {
 			logger.debug('No server ID found in AnimeKai', streamLog);
@@ -213,13 +222,13 @@ export class AnimeKaiProvider extends BaseProvider {
 			return [];
 		}
 
-		const language = servers['sub']?.['1']?.lid ? 'Sub' : 'Dub';
+		const language = isDub ? 'Dub' : 'Sub';
 
 		return [
 			this.createStreamResult(streamUrl, {
 				quality: 'Auto',
 				title: `AnimeKai Stream (${language})`,
-				language
+				language: isDub ? 'en' : 'ja'
 			})
 		];
 	}

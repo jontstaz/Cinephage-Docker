@@ -108,6 +108,9 @@ export interface SearchParams {
 
 	/** AniList ID (for anime - enables direct lookup) */
 	anilistId?: number;
+
+	/** Ordered list of preferred language codes (ISO 639-1) for stream selection */
+	preferredLanguages?: string[];
 }
 
 // ============================================================================

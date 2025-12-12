@@ -12,8 +12,12 @@ import type { IndexerRecord } from '$lib/server/db/schema';
 import { UnifiedIndexer } from '../runtime/UnifiedIndexer';
 import { YamlDefinitionLoader, getYamlDefinitionLoader } from './YamlDefinitionLoader';
 import { createChildLogger } from '$lib/logging';
+import { getNewznabCapabilitiesProvider } from '../newznab/NewznabCapabilitiesProvider';
 
 const log = createChildLogger({ module: 'YamlIndexerFactory' });
+
+/** Definition IDs that use the Newznab/Torznab protocol */
+const NEWZNAB_DEFINITIONS = ['newznab', 'torznab'];
 
 /**
  * Factory for creating YAML-based indexer instances.
@@ -36,8 +40,9 @@ export class YamlIndexerFactory implements IIndexerFactory {
 	/**
 	 * Create an indexer instance from config.
 	 * Uses UnifiedIndexer which correctly handles all protocols (torrent, usenet, streaming).
+	 * For Newznab/Torznab indexers, fetches live capabilities to filter unsupported params.
 	 */
-	createIndexer(config: IndexerConfig): IIndexer {
+	async createIndexer(config: IndexerConfig): Promise<IIndexer> {
 		// Check cache first
 		const cached = this.indexerCache.get(config.id);
 		if (cached) {
@@ -88,6 +93,29 @@ export class YamlIndexerFactory implements IIndexerFactory {
 			};
 		}
 
+		// For Newznab/Torznab, fetch live capabilities from the indexer's /api?t=caps endpoint
+		// This allows us to filter out unsupported search params (e.g., tmdbid if not supported)
+		let liveCapabilities;
+		if (NEWZNAB_DEFINITIONS.includes(config.definitionId)) {
+			try {
+				const provider = getNewznabCapabilitiesProvider();
+				const apiKey = cleanSettings?.apikey as string | undefined;
+				liveCapabilities = await provider.getCapabilities(config.baseUrl, apiKey?.trim());
+				log.info('Fetched Newznab capabilities', {
+					indexerId: config.id,
+					baseUrl: config.baseUrl,
+					movieSearch: liveCapabilities.searching.movieSearch.supportedParams,
+					tvSearch: liveCapabilities.searching.tvSearch.supportedParams
+				});
+			} catch (error) {
+				// Log but don't fail - indexer will work, just without param filtering
+				log.warn('Failed to fetch Newznab capabilities, using defaults', {
+					indexerId: config.id,
+					error: error instanceof Error ? error.message : String(error)
+				});
+			}
+		}
+
 		// Create indexer using UnifiedIndexer
 		const indexer = new UnifiedIndexer({
 			record,
@@ -96,7 +124,8 @@ export class YamlIndexerFactory implements IIndexerFactory {
 			definition,
 			rateLimit: definition.requestdelay
 				? { requests: 1, periodMs: definition.requestdelay * 1000 }
-				: undefined
+				: undefined,
+			liveCapabilities
 		});
 
 		// Cache it

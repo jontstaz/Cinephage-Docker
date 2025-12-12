@@ -106,7 +106,8 @@ search:
         - name: dateparse
           args: 'Mon, 02 Jan 2006 15:04:05 -0700'
     size:
-      selector: size
+      selector: enclosure
+      attribute: length
       optional: true
     seeders:
       selector: "torznab|attr[name='seeders']"

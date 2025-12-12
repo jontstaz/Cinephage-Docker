@@ -9,8 +9,12 @@ import type { IIndexer, IndexerConfig } from '../types';
 import { YamlIndexer } from '../runtime/YamlIndexer';
 import { YamlDefinitionLoader } from './YamlDefinitionLoader';
 import { createChildLogger } from '$lib/logging';
+import { getNewznabCapabilitiesProvider } from '../newznab/NewznabCapabilitiesProvider';
 
 const log = createChildLogger({ module: 'IndexerFactory' });
+
+/** Definition IDs that use the Newznab/Torznab protocol */
+const NEWZNAB_DEFINITIONS = ['newznab', 'torznab'];
 
 /**
  * Factory for creating indexer instances.
@@ -43,8 +47,8 @@ export class IndexerFactory {
 		// Ensure loader is ready
 		await this.initialize();
 
-		// Create YAML indexer
-		const indexer = this.createYamlIndexer(config);
+		// Create YAML indexer (may fetch capabilities asynchronously)
+		const indexer = await this.createYamlIndexer(config);
 
 		// Cache and return
 		this.cache.set(config.id, indexer);
@@ -58,8 +62,9 @@ export class IndexerFactory {
 
 	/**
 	 * Create a YAML indexer.
+	 * For Newznab/Torznab indexers, fetches live capabilities to filter unsupported params.
 	 */
-	private createYamlIndexer(config: IndexerConfig): IIndexer {
+	private async createYamlIndexer(config: IndexerConfig): Promise<IIndexer> {
 		if (!this.yamlLoader) {
 			throw new Error('YAML loader not initialized. Call initialize() first.');
 		}
@@ -69,12 +74,36 @@ export class IndexerFactory {
 			throw new Error(`YAML definition not found: ${config.definitionId}`);
 		}
 
+		// For Newznab/Torznab, fetch live capabilities from the indexer's /api?t=caps endpoint
+		// This allows us to filter out unsupported search params (e.g., tmdbid if not supported)
+		let liveCapabilities;
+		if (NEWZNAB_DEFINITIONS.includes(config.definitionId)) {
+			try {
+				const provider = getNewznabCapabilitiesProvider();
+				const apiKey = config.settings?.apikey as string | undefined;
+				liveCapabilities = await provider.getCapabilities(config.baseUrl, apiKey);
+				log.info('Fetched Newznab capabilities', {
+					indexerId: config.id,
+					baseUrl: config.baseUrl,
+					movieSearch: liveCapabilities.searching.movieSearch.supportedParams,
+					tvSearch: liveCapabilities.searching.tvSearch.supportedParams
+				});
+			} catch (error) {
+				// Log but don't fail - indexer will work, just without param filtering
+				log.warn('Failed to fetch Newznab capabilities, using defaults', {
+					indexerId: config.id,
+					error: error instanceof Error ? error.message : String(error)
+				});
+			}
+		}
+
 		return new YamlIndexer({
 			config,
 			definition,
 			rateLimit: definition.requestdelay
 				? { requests: 1, periodMs: definition.requestdelay * 1000 }
-				: undefined
+				: undefined,
+			liveCapabilities
 		});
 	}
 

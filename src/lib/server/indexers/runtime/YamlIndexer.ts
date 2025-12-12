@@ -41,6 +41,7 @@ import { getRateLimitRegistry } from '../ratelimit';
 import type { RateLimitConfig } from '../ratelimit/types';
 import { createChildLogger } from '$lib/logging';
 import { IndexerHttp, createIndexerHttp } from '../http/IndexerHttp';
+import type { NewznabCapabilities } from '../newznab/types';
 
 export interface YamlIndexerConfig {
 	/** Indexer config from database */
@@ -49,6 +50,8 @@ export interface YamlIndexerConfig {
 	definition: YamlDefinition;
 	/** Optional rate limit config */
 	rateLimit?: RateLimitConfig;
+	/** Live capabilities fetched from Newznab/Torznab indexer's /api?t=caps endpoint */
+	liveCapabilities?: NewznabCapabilities;
 }
 
 /**
@@ -85,7 +88,7 @@ export class YamlIndexer implements IIndexer {
 	private isLoggedIn = false;
 
 	constructor(indexerConfig: YamlIndexerConfig) {
-		const { config, definition, rateLimit } = indexerConfig;
+		const { config, definition, rateLimit, liveCapabilities } = indexerConfig;
 
 		this.config = config;
 		this.definition = definition;
@@ -111,6 +114,28 @@ export class YamlIndexer implements IIndexer {
 
 		// Create runtime components
 		this.requestBuilder = createRequestBuilder(definition, this.templateEngine, this.filterEngine);
+
+		// Configure RequestBuilder with live capabilities (for Newznab/Torznab)
+		// This filters out unsupported params like tmdbid when the indexer doesn't support them
+		if (liveCapabilities) {
+			const caps = liveCapabilities.searching;
+			if (caps.search.available) {
+				this.requestBuilder.setSupportedParams('search', caps.search.supportedParams);
+			}
+			if (caps.movieSearch.available) {
+				this.requestBuilder.setSupportedParams('movie', caps.movieSearch.supportedParams);
+			}
+			if (caps.tvSearch.available) {
+				this.requestBuilder.setSupportedParams('tvsearch', caps.tvSearch.supportedParams);
+			}
+			if (caps.audioSearch.available) {
+				this.requestBuilder.setSupportedParams('audio', caps.audioSearch.supportedParams);
+			}
+			if (caps.bookSearch.available) {
+				this.requestBuilder.setSupportedParams('book', caps.bookSearch.supportedParams);
+			}
+		}
+
 		this.responseParser = createResponseParser(
 			definition,
 			this.templateEngine,

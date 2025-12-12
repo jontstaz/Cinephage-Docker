@@ -197,10 +197,12 @@ export function createTextOnlyCriteria<T extends SearchCriteria>(criteria: T): T
 }
 
 /**
- * Create criteria with only IDs (no text query)
+ * Create criteria for ID-based search.
+ * Keeps query text alongside IDs for indexers that need both (Newznab/Torznab).
+ * IDs and query work as complementary filters, not alternatives.
  */
 export function createIdOnlyCriteria<T extends SearchCriteria>(criteria: T): T {
-	return { ...criteria, query: '' };
+	return { ...criteria };
 }
 
 /**

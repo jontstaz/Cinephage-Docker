@@ -40,6 +40,7 @@ import type { RateLimitConfig } from '../ratelimit/types';
 import { createChildLogger } from '$lib/logging';
 import { IndexerHttp, createIndexerHttp } from '../http/IndexerHttp';
 import { DatabaseQueryExecutor, createDatabaseQueryExecutor } from './DatabaseQueryExecutor';
+import type { NewznabCapabilities } from '../newznab/types';
 
 /**
  * Configuration for creating a UnifiedIndexer instance
@@ -55,6 +56,8 @@ export interface UnifiedIndexerConfig {
 	definition: YamlDefinition;
 	/** Optional rate limit configuration override */
 	rateLimit?: RateLimitConfig;
+	/** Live capabilities fetched from Newznab/Torznab indexer's /api?t=caps endpoint */
+	liveCapabilities?: NewznabCapabilities;
 }
 
 /**
@@ -92,7 +95,7 @@ export class UnifiedIndexer implements IIndexer {
 	private isLoggedIn = false;
 
 	constructor(config: UnifiedIndexerConfig) {
-		const { record, settings, protocolSettings, definition, rateLimit } = config;
+		const { record, settings, protocolSettings, definition, rateLimit, liveCapabilities } = config;
 
 		this.record = record;
 		this.settings = settings;
@@ -120,6 +123,28 @@ export class UnifiedIndexer implements IIndexer {
 
 		// Create runtime components
 		this.requestBuilder = createRequestBuilder(definition, this.templateEngine, this.filterEngine);
+
+		// Configure RequestBuilder with live capabilities (for Newznab/Torznab)
+		// This filters out unsupported params like tmdbid when the indexer doesn't support them
+		if (liveCapabilities) {
+			const caps = liveCapabilities.searching;
+			if (caps.search.available) {
+				this.requestBuilder.setSupportedParams('search', caps.search.supportedParams);
+			}
+			if (caps.movieSearch.available) {
+				this.requestBuilder.setSupportedParams('movie', caps.movieSearch.supportedParams);
+			}
+			if (caps.tvSearch.available) {
+				this.requestBuilder.setSupportedParams('tvsearch', caps.tvSearch.supportedParams);
+			}
+			if (caps.audioSearch.available) {
+				this.requestBuilder.setSupportedParams('audio', caps.audioSearch.supportedParams);
+			}
+			if (caps.bookSearch.available) {
+				this.requestBuilder.setSupportedParams('book', caps.bookSearch.supportedParams);
+			}
+		}
+
 		this.responseParser = createResponseParser(
 			definition,
 			this.templateEngine,

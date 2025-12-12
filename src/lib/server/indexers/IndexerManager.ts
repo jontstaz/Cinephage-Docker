@@ -326,8 +326,8 @@ export class IndexerManager {
 	}
 
 	/** Create an indexer instance from config (YAML-only architecture) */
-	private createIndexerInstance(config: IndexerConfig): IIndexer | null {
-		const instance = this.indexerFactory.createIndexer(config);
+	private async createIndexerInstance(config: IndexerConfig): Promise<IIndexer | null> {
+		const instance = await this.indexerFactory.createIndexer(config);
 		if (instance) {
 			logger.debug('Created indexer instance', {
 				indexerId: config.id,
@@ -350,7 +350,7 @@ export class IndexerManager {
 
 		// Create instance
 		try {
-			instance = this.createIndexerInstance(config) ?? undefined;
+			instance = (await this.createIndexerInstance(config)) ?? undefined;
 			if (instance) {
 				this.indexerInstances.set(id, instance);
 			}
@@ -382,11 +382,11 @@ export class IndexerManager {
 			}
 		}
 
-		// Create uncached instances (synchronous but batched for clarity)
+		// Create uncached instances (async to allow capability fetching)
 		const created: IIndexer[] = [];
 		for (const config of needsCreation) {
 			try {
-				const instance = this.createIndexerInstance(config);
+				const instance = await this.createIndexerInstance(config);
 				if (instance) {
 					this.indexerInstances.set(config.id, instance);
 					created.push(instance);
@@ -443,7 +443,7 @@ export class IndexerManager {
 			id: 'test-' + randomUUID()
 		};
 
-		const instance = this.createIndexerInstance(tempConfig);
+		const instance = await this.createIndexerInstance(tempConfig);
 		if (!instance) {
 			throw new Error(`Failed to create indexer instance for: ${config.definitionId}`);
 		}

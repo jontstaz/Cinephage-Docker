@@ -324,3 +324,99 @@ export const releaseParser = new ReleaseParser();
 export function parseRelease(title: string): ParsedRelease {
 	return releaseParser.parse(title);
 }
+
+/**
+ * Extracted external IDs from folder/file names
+ */
+export interface ExtractedIds {
+	tmdbId?: number;
+	tvdbId?: number;
+	imdbId?: string;
+}
+
+/**
+ * Patterns for detecting external IDs in folder/file names
+ * Supports common naming conventions from Sonarr, Radarr, Plex, and scene releases
+ */
+const EXTERNAL_ID_PATTERNS = {
+	// TVDB patterns (common in Sonarr/Plex TV libraries)
+	tvdb: [
+		/\{tvdb-(\d+)\}/i, // {tvdb-12345}
+		/\[tvdb-(\d+)\]/i, // [tvdb-12345]
+		/\[tvdbid[-=](\d+)\]/i, // [tvdbid-12345] or [tvdbid=12345]
+		/\.tvdbid-(\d+)\./i, // .tvdbid-12345.
+		/\btvdb[-_]?id[-_=]?(\d+)\b/i, // tvdbid12345, tvdb-id-12345, tvdb_id=12345
+		/\btvdb-(\d+)\b/i // tvdb-12345 (simple format without braces)
+	],
+	// TMDB patterns (common in Radarr libraries)
+	tmdb: [
+		/\{tmdb-(\d+)\}/i, // {tmdb-12345}
+		/\[tmdb-(\d+)\]/i, // [tmdb-12345]
+		/\[tmdbid[-=](\d+)\]/i, // [tmdbid-12345] or [tmdbid=12345]
+		/\.tmdbid-(\d+)\./i, // .tmdbid-12345.
+		/\btmdb[-_]?id[-_=]?(\d+)\b/i, // tmdbid12345, tmdb-id-12345, tmdb_id=12345
+		/\btmdb-(\d+)\b/i // tmdb-12345 (simple format without braces)
+	],
+	// IMDB patterns (common in scene releases and various tools)
+	imdb: [
+		/\{imdb-(tt\d+)\}/i, // {imdb-tt1234567}
+		/\[imdb-(tt\d+)\]/i, // [imdb-tt1234567]
+		/\[imdbid[-=](tt\d+)\]/i, // [imdbid-tt1234567] or [imdbid=tt1234567]
+		/\.(tt\d{7,})\./i, // .tt1234567. (standalone in filename)
+		/\b(tt\d{7,})\b/i // tt1234567 (IMDB IDs are at least 7 digits)
+	]
+} as const;
+
+/**
+ * Extract external IDs (TMDB, TVDB, IMDB) from a file path or release title
+ *
+ * Used for matching content from libraries that include external IDs in folder names,
+ * such as Sonarr (TVDB), Radarr (TMDB), or scene releases (IMDB).
+ *
+ * @param input - The file path or release title to extract IDs from
+ * @returns Object containing any extracted IDs
+ *
+ * @example
+ * extractExternalIds('Breaking Bad {tvdb-81189}/Season 01/')
+ * // => { tvdbId: 81189 }
+ *
+ * @example
+ * extractExternalIds('Inception {tmdb-27205} (2010)')
+ * // => { tmdbId: 27205 }
+ *
+ * @example
+ * extractExternalIds('The.Godfather.1972.tt0068646.1080p.BluRay.mkv')
+ * // => { imdbId: 'tt0068646' }
+ */
+export function extractExternalIds(input: string): ExtractedIds {
+	const ids: ExtractedIds = {};
+
+	// Extract TVDB ID
+	for (const pattern of EXTERNAL_ID_PATTERNS.tvdb) {
+		const match = input.match(pattern);
+		if (match) {
+			ids.tvdbId = parseInt(match[1], 10);
+			break;
+		}
+	}
+
+	// Extract TMDB ID
+	for (const pattern of EXTERNAL_ID_PATTERNS.tmdb) {
+		const match = input.match(pattern);
+		if (match) {
+			ids.tmdbId = parseInt(match[1], 10);
+			break;
+		}
+	}
+
+	// Extract IMDB ID
+	for (const pattern of EXTERNAL_ID_PATTERNS.imdb) {
+		const match = input.match(pattern);
+		if (match) {
+			ids.imdbId = match[1];
+			break;
+		}
+	}
+
+	return ids;
+}

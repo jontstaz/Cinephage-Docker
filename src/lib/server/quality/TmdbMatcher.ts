@@ -6,6 +6,7 @@
  */
 
 import type { ParsedRelease } from '../indexers/parser/types.js';
+import { extractExternalIds } from '../indexers/parser/ReleaseParser.js';
 import { tmdb } from '../tmdb.js';
 import { db } from '../db/index.js';
 import { externalIdCache } from '../db/schema.js';
@@ -47,27 +48,79 @@ export class TmdbMatcher {
 
 	/**
 	 * Match a parsed release to a TMDB entry
+	 *
+	 * Matching priority:
+	 * 1. TMDB ID from hint
+	 * 2. IMDB ID from hint
+	 * 3. TVDB ID from hint
+	 * 4. TMDB ID extracted from release title
+	 * 5. TVDB ID extracted from release title
+	 * 6. IMDB ID extracted from release title
+	 * 7. Title search with fuzzy matching
 	 */
 	async match(parsed: ParsedRelease, hint?: TmdbHint): Promise<TmdbMatch | null> {
+		const mediaType = parsed.episode ? 'tv' : (hint?.mediaType ?? 'movie');
+
 		// If we have a TMDB ID hint, use it directly
 		if (hint?.tmdbId) {
 			return this.getMatchById(hint.tmdbId, hint.mediaType);
 		}
 
-		// If we have an IMDB ID, find by external ID
+		// If we have an IMDB ID hint, find by external ID
 		if (hint?.imdbId) {
 			const result = await this.findByImdbId(hint.imdbId);
 			if (result) return result;
 		}
 
-		// If we have a TVDB ID, find by external ID
+		// If we have a TVDB ID hint, find by external ID
 		if (hint?.tvdbId) {
 			const result = await this.findByTvdbId(hint.tvdbId);
 			if (result) return result;
 		}
 
+		// Check for external IDs embedded in the raw release title
+		// This handles releases with naming like "Show.Name.{tvdb-12345}.S01E01.mkv"
+		const extractedIds = extractExternalIds(parsed.originalTitle);
+
+		if (extractedIds.tmdbId) {
+			const result = await this.getMatchById(extractedIds.tmdbId, mediaType);
+			if (result) {
+				logger.debug('[TmdbMatcher] Matched via TMDB ID in release title', {
+					tmdbId: extractedIds.tmdbId,
+					title: result.title,
+					release: parsed.originalTitle
+				});
+				return result;
+			}
+		}
+
+		if (extractedIds.tvdbId) {
+			const result = await this.findByTvdbId(extractedIds.tvdbId);
+			if (result) {
+				logger.debug('[TmdbMatcher] Matched via TVDB ID in release title', {
+					tvdbId: extractedIds.tvdbId,
+					tmdbId: result.tmdbId,
+					title: result.title,
+					release: parsed.originalTitle
+				});
+				return result;
+			}
+		}
+
+		if (extractedIds.imdbId) {
+			const result = await this.findByImdbId(extractedIds.imdbId);
+			if (result) {
+				logger.debug('[TmdbMatcher] Matched via IMDB ID in release title', {
+					imdbId: extractedIds.imdbId,
+					tmdbId: result.tmdbId,
+					title: result.title,
+					release: parsed.originalTitle
+				});
+				return result;
+			}
+		}
+
 		// Fall back to title search
-		const mediaType = parsed.episode ? 'tv' : (hint?.mediaType ?? 'movie');
 		return this.searchByTitle(parsed.cleanTitle, parsed.year, mediaType);
 	}
 

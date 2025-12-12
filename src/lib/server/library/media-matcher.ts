@@ -24,7 +24,7 @@ import { basename, dirname, extname } from 'path';
 import { getSubtitleSettingsService } from '$lib/server/subtitles/services/SubtitleSettingsService.js';
 import { getSubtitleScheduler } from '$lib/server/subtitles/services/SubtitleScheduler.js';
 import { logger } from '$lib/logging/index.js';
-import { parseRelease } from '$lib/server/indexers/parser/ReleaseParser.js';
+import { parseRelease, extractExternalIds } from '$lib/server/indexers/parser/ReleaseParser.js';
 
 /**
  * Default match confidence threshold (0.0 - 1.0)
@@ -173,13 +173,65 @@ export class MediaMatcherService {
 
 	/**
 	 * Search TMDB and find best matches for a file
+	 *
+	 * Matching priority:
+	 * 1. TMDB ID embedded in path (100% confidence)
+	 * 2. TVDB ID embedded in path → cross-reference via TMDB (100% confidence)
+	 * 3. IMDB ID embedded in path → cross-reference via TMDB (100% confidence)
+	 * 4. Title search with fuzzy matching (variable confidence)
 	 */
 	private async findMatches(
 		title: string,
 		year: number | undefined,
-		mediaType: 'movie' | 'tv'
+		mediaType: 'movie' | 'tv',
+		filePath: string
 	): Promise<SuggestedMatch[]> {
 		try {
+			// Extract external IDs from folder/file path
+			const extractedIds = extractExternalIds(filePath);
+
+			// Priority 1: Direct TMDB ID lookup (highest confidence)
+			if (extractedIds.tmdbId) {
+				const match = await this.lookupByTmdbId(extractedIds.tmdbId, mediaType);
+				if (match) {
+					logger.info('[MediaMatcher] Matched via TMDB ID in path', {
+						tmdbId: extractedIds.tmdbId,
+						title: match.title,
+						filePath
+					});
+					return [match];
+				}
+			}
+
+			// Priority 2: TVDB ID → TMDB cross-reference
+			if (extractedIds.tvdbId) {
+				const match = await this.lookupByTvdbId(extractedIds.tvdbId);
+				if (match) {
+					logger.info('[MediaMatcher] Matched via TVDB ID in path', {
+						tvdbId: extractedIds.tvdbId,
+						tmdbId: match.tmdbId,
+						title: match.title,
+						filePath
+					});
+					return [match];
+				}
+			}
+
+			// Priority 3: IMDB ID → TMDB cross-reference
+			if (extractedIds.imdbId) {
+				const match = await this.lookupByImdbId(extractedIds.imdbId, mediaType);
+				if (match) {
+					logger.info('[MediaMatcher] Matched via IMDB ID in path', {
+						imdbId: extractedIds.imdbId,
+						tmdbId: match.tmdbId,
+						title: match.title,
+						filePath
+					});
+					return [match];
+				}
+			}
+
+			// Priority 4: Fall back to title search
 			let results: SearchResult;
 
 			// Use skipFilters=true to bypass global filters (min rating, vote count)
@@ -223,6 +275,131 @@ export class MediaMatcherService {
 	}
 
 	/**
+	 * Lookup by direct TMDB ID
+	 */
+	private async lookupByTmdbId(
+		tmdbId: number,
+		mediaType: 'movie' | 'tv'
+	): Promise<SuggestedMatch | null> {
+		try {
+			if (mediaType === 'movie') {
+				const movie = await tmdb.getMovie(tmdbId);
+				return {
+					tmdbId: movie.id,
+					title: movie.title,
+					year: movie.release_date ? parseInt(movie.release_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			} else {
+				const show = await tmdb.getTVShow(tmdbId);
+				return {
+					tmdbId: show.id,
+					title: show.name,
+					year: show.first_air_date ? parseInt(show.first_air_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+		} catch (error) {
+			logger.warn('[MediaMatcher] TMDB ID lookup failed', {
+				tmdbId,
+				mediaType,
+				error: error instanceof Error ? error.message : String(error)
+			});
+			return null;
+		}
+	}
+
+	/**
+	 * Lookup by TVDB ID using TMDB's cross-reference API
+	 */
+	private async lookupByTvdbId(tvdbId: number): Promise<SuggestedMatch | null> {
+		try {
+			const result = await tmdb.findByExternalId(String(tvdbId), 'tvdb_id');
+
+			// TVDB IDs are primarily for TV shows
+			if (result.tv_results.length > 0) {
+				const show = result.tv_results[0];
+				return {
+					tmdbId: show.id,
+					title: show.name,
+					year: show.first_air_date ? parseInt(show.first_air_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+
+			return null;
+		} catch (error) {
+			logger.warn('[MediaMatcher] TVDB ID lookup failed', {
+				tvdbId,
+				error: error instanceof Error ? error.message : String(error)
+			});
+			return null;
+		}
+	}
+
+	/**
+	 * Lookup by IMDB ID using TMDB's cross-reference API
+	 */
+	private async lookupByImdbId(
+		imdbId: string,
+		mediaType: 'movie' | 'tv'
+	): Promise<SuggestedMatch | null> {
+		try {
+			const result = await tmdb.findByExternalId(imdbId, 'imdb_id');
+
+			// Prefer the expected media type, but accept either
+			if (mediaType === 'movie' && result.movie_results.length > 0) {
+				const movie = result.movie_results[0];
+				return {
+					tmdbId: movie.id,
+					title: movie.title,
+					year: movie.release_date ? parseInt(movie.release_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+
+			if (mediaType === 'tv' && result.tv_results.length > 0) {
+				const show = result.tv_results[0];
+				return {
+					tmdbId: show.id,
+					title: show.name,
+					year: show.first_air_date ? parseInt(show.first_air_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+
+			// Fall back to any result type
+			if (result.movie_results.length > 0) {
+				const movie = result.movie_results[0];
+				return {
+					tmdbId: movie.id,
+					title: movie.title,
+					year: movie.release_date ? parseInt(movie.release_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+
+			if (result.tv_results.length > 0) {
+				const show = result.tv_results[0];
+				return {
+					tmdbId: show.id,
+					title: show.name,
+					year: show.first_air_date ? parseInt(show.first_air_date.split('-')[0]) : undefined,
+					confidence: 1.0
+				};
+			}
+
+			return null;
+		} catch (error) {
+			logger.warn('[MediaMatcher] IMDB ID lookup failed', {
+				imdbId,
+				error: error instanceof Error ? error.message : String(error)
+			});
+			return null;
+		}
+	}
+
+	/**
 	 * Process an unmatched file and try to match it
 	 */
 	async processUnmatchedFile(fileId: string): Promise<MatchResult> {
@@ -247,11 +424,12 @@ export class MediaMatcherService {
 		const searchTitle = parsed.cleanTitle || file.parsedTitle || filename;
 		const searchYear = parsed.year || file.parsedYear || undefined;
 
-		// Find matches
+		// Find matches (checks for embedded IDs first, then falls back to title search)
 		const matches = await this.findMatches(
 			searchTitle,
 			searchYear,
-			file.mediaType as 'movie' | 'tv'
+			file.mediaType as 'movie' | 'tv',
+			file.path
 		);
 
 		if (matches.length === 0) {

@@ -45,6 +45,8 @@ import {
 import { logger } from '$lib/logging';
 import { DOWNLOAD, EXCLUDED_FILE_PATTERNS } from '$lib/config/constants';
 import { ImportWorker, workerManager } from '$lib/server/workers';
+import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
+import { getSubtitleScheduler } from '$lib/server/subtitles/services/SubtitleScheduler.js';
 
 /**
  * Import result for a single file
@@ -477,6 +479,14 @@ export class ImportService extends EventEmitter {
 			category: 'imports'
 		});
 
+		// Trigger subtitle search asynchronously (don't await to avoid blocking)
+		this.triggerSubtitleSearch('movie', movie.id).catch((err) => {
+			logger.warn('[ImportService] Failed to trigger subtitle search for movie', {
+				movieId: movie.id,
+				error: err instanceof Error ? err.message : String(err)
+			});
+		});
+
 		return result;
 	}
 
@@ -615,6 +625,16 @@ export class ImportService extends EventEmitter {
 				importedCount: result.importedFiles.length,
 				failedCount: result.failedFiles.length
 			});
+
+			// Trigger subtitle search for each imported episode asynchronously
+			if (importedFileIds.length > 0) {
+				this.triggerSubtitleSearchForEpisodeFiles(importedFileIds).catch((err) => {
+					logger.warn('[ImportService] Failed to trigger subtitle search for episodes', {
+						seriesId: seriesData.id,
+						error: err instanceof Error ? err.message : String(err)
+					});
+				});
+			}
 		} else {
 			result.error = 'Failed to import any episodes';
 			await downloadMonitor.markFailed(queueItem.id, result.error);
@@ -1114,6 +1134,103 @@ export class ImportService extends EventEmitter {
 			logger.error('Failed to delete episode file', { fileId, error: errorMessage });
 			return { success: false, error: errorMessage };
 		}
+	}
+
+	/**
+	 * Trigger subtitle search for newly imported media
+	 * Runs asynchronously and doesn't block import completion
+	 */
+	private async triggerSubtitleSearch(
+		mediaType: 'movie' | 'episode',
+		mediaId: string
+	): Promise<void> {
+		try {
+			// Check if subtitle search on import is enabled
+			const settings = await monitoringScheduler.getSettings();
+			if (!settings.subtitleSearchOnImportEnabled) {
+				logger.debug('[ImportService] Subtitle search on import is disabled', {
+					mediaType,
+					mediaId
+				});
+				return;
+			}
+
+			// Use the existing SubtitleScheduler.processNewMedia() method
+			const subtitleScheduler = getSubtitleScheduler();
+			const result = await subtitleScheduler.processNewMedia(mediaType, mediaId);
+
+			logger.info('[ImportService] Post-import subtitle search completed', {
+				mediaType,
+				mediaId,
+				downloaded: result.downloaded,
+				errors: result.errors.length
+			});
+		} catch (error) {
+			// Log but don't fail - subtitle search is supplementary
+			logger.warn('[ImportService] Post-import subtitle search failed', {
+				mediaType,
+				mediaId,
+				error: error instanceof Error ? error.message : String(error)
+			});
+		}
+	}
+
+	/**
+	 * Trigger subtitle search for episodes associated with imported episode files
+	 */
+	private async triggerSubtitleSearchForEpisodeFiles(fileIds: string[]): Promise<void> {
+		// Check if subtitle search on import is enabled
+		const settings = await monitoringScheduler.getSettings();
+		if (!settings.subtitleSearchOnImportEnabled) {
+			logger.debug('[ImportService] Subtitle search on import is disabled');
+			return;
+		}
+
+		// Collect unique episode IDs from all files
+		const uniqueEpisodeIds = new Set<string>();
+
+		for (const fileId of fileIds) {
+			const [file] = await db
+				.select()
+				.from(episodeFiles)
+				.where(eq(episodeFiles.id, fileId))
+				.limit(1);
+
+			if (file?.episodeIds) {
+				for (const epId of file.episodeIds) {
+					uniqueEpisodeIds.add(epId);
+				}
+			}
+		}
+
+		if (uniqueEpisodeIds.size === 0) {
+			return;
+		}
+
+		// Trigger subtitle search for each episode
+		const subtitleScheduler = getSubtitleScheduler();
+		let totalDownloaded = 0;
+		let totalErrors = 0;
+
+		for (const episodeId of uniqueEpisodeIds) {
+			try {
+				const result = await subtitleScheduler.processNewMedia('episode', episodeId);
+				totalDownloaded += result.downloaded;
+				totalErrors += result.errors.length;
+			} catch (error) {
+				totalErrors++;
+				logger.warn('[ImportService] Failed to search subtitles for episode', {
+					episodeId,
+					error: error instanceof Error ? error.message : String(error)
+				});
+			}
+		}
+
+		logger.info('[ImportService] Post-import episode subtitle search completed', {
+			episodeCount: uniqueEpisodeIds.size,
+			downloaded: totalDownloaded,
+			errors: totalErrors
+		});
 	}
 
 	/**

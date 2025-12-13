@@ -13,6 +13,8 @@ Cinephage includes automated monitoring tasks that run in the background to keep
 | New Episode Detection   | 1 hour           | Monitors for newly released episodes     |
 | Cutoff Unmet            | 24 hours         | Finds content below quality cutoff       |
 | Pending Release Cleanup | 15 minutes       | Removes stuck pending items              |
+| Missing Subtitles       | 6 hours          | Searches for missing subtitles per language profile |
+| Subtitle Upgrade        | Daily            | Finds better-scoring subtitles for upgrades |
 
 ---
 
@@ -101,6 +103,43 @@ Removes pending releases that never materialized.
 
 - Interval: Configurable (default 15 minutes)
 - Age threshold before cleanup
+
+### Missing Subtitles Search
+
+Automatically searches for subtitles on media that has files but lacks subtitles required by the language profile.
+
+**How it works:**
+
+1. Finds movies/episodes with files that want subtitles
+2. Checks each item against its assigned language profile
+3. Considers both external subtitle files AND embedded subtitles in the video container
+4. Searches configured providers for missing languages
+5. Downloads subtitles meeting the minimum score threshold
+
+**Configuration:**
+
+- Interval: Configurable (default 6 hours)
+- Respects language profile minimum score setting
+- Processes items in batches to avoid overwhelming providers
+- Records downloads in subtitle history
+
+### Subtitle Upgrade Search
+
+Searches for better-scoring subtitles when the language profile allows upgrades.
+
+**How it works:**
+
+1. Finds existing subtitles with match scores below potential improvements
+2. Checks if the language profile has `upgradesAllowed` enabled
+3. Searches for subtitles with scores at least 10 points better
+4. Replaces existing subtitles with higher-quality matches
+
+**Configuration:**
+
+- Interval: Configurable (default daily)
+- Requires `upgradesAllowed: true` in language profile
+- Minimum improvement threshold: 10 points
+- Records upgrades in subtitle history with `action: upgraded`
 
 ---
 

@@ -220,9 +220,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Get the default language profile if wantsSubtitles is true
 		let languageProfileId: string | null = null;
 		if (wantsSubtitles) {
-			const defaultLanguageProfile = await db.query.languageProfiles.findFirst({
-				where: eq(languageProfiles.isDefault, true)
-			});
+			// Use db.select() pattern instead of db.query.findFirst() for reliable boolean comparison
+			const [defaultLanguageProfile] = await db
+				.select()
+				.from(languageProfiles)
+				.where(eq(languageProfiles.isDefault, true))
+				.limit(1);
 			languageProfileId = defaultLanguageProfile?.id ?? null;
 
 			if (!languageProfileId) {

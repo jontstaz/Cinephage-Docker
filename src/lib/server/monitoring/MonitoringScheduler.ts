@@ -24,7 +24,9 @@ const DEFAULT_INTERVALS = {
 	upgrade: 168, // Weekly
 	newEpisode: 1, // Hourly
 	cutoffUnmet: 24,
-	pendingRelease: 0.25 // Every 15 minutes
+	pendingRelease: 0.25, // Every 15 minutes
+	missingSubtitles: 6, // Every 6 hours
+	subtitleUpgrade: 24 // Daily
 } as const;
 
 /**
@@ -54,6 +56,10 @@ export interface MonitoringSettings {
 	cutoffUnmetSearchIntervalHours: number;
 	autoReplaceEnabled: boolean;
 	searchOnMonitorEnabled: boolean;
+	// Subtitle monitoring settings
+	missingSubtitlesIntervalHours: number;
+	subtitleUpgradeIntervalHours: number;
+	subtitleSearchOnImportEnabled: boolean;
 }
 
 /**
@@ -77,6 +83,8 @@ export interface MonitoringStatus {
 		newEpisode: TaskStatus;
 		cutoffUnmet: TaskStatus;
 		pendingRelease: TaskStatus;
+		missingSubtitles: TaskStatus;
+		subtitleUpgrade: TaskStatus;
 	};
 }
 
@@ -122,7 +130,7 @@ export class MonitoringScheduler extends EventEmitter {
 		const settings = await db.select().from(monitoringSettings);
 		const settingsMap = new Map(settings.map((s) => [s.key, s.value]));
 
-		const taskTypes = ['missing', 'upgrade', 'newEpisode', 'cutoffUnmet'];
+		const taskTypes = ['missing', 'upgrade', 'newEpisode', 'cutoffUnmet', 'missingSubtitles', 'subtitleUpgrade'];
 		for (const taskType of taskTypes) {
 			const key = `last_run_${taskType}`;
 			const value = settingsMap.get(key);
@@ -173,7 +181,17 @@ export class MonitoringScheduler extends EventEmitter {
 					String(DEFAULT_INTERVALS.cutoffUnmet)
 			),
 			autoReplaceEnabled: settingsMap.get('auto_replace_enabled') !== 'false',
-			searchOnMonitorEnabled: settingsMap.get('search_on_monitor_enabled') !== 'false'
+			searchOnMonitorEnabled: settingsMap.get('search_on_monitor_enabled') !== 'false',
+			// Subtitle settings
+			missingSubtitlesIntervalHours: parseFloat(
+				settingsMap.get('missing_subtitles_interval_hours') ||
+					String(DEFAULT_INTERVALS.missingSubtitles)
+			),
+			subtitleUpgradeIntervalHours: parseFloat(
+				settingsMap.get('subtitle_upgrade_interval_hours') ||
+					String(DEFAULT_INTERVALS.subtitleUpgrade)
+			),
+			subtitleSearchOnImportEnabled: settingsMap.get('subtitle_search_on_import_enabled') !== 'false'
 		};
 	}
 
@@ -214,6 +232,25 @@ export class MonitoringScheduler extends EventEmitter {
 			updates.push({
 				key: 'search_on_monitor_enabled',
 				value: String(settings.searchOnMonitorEnabled)
+			});
+		}
+		// Subtitle settings
+		if (settings.missingSubtitlesIntervalHours !== undefined) {
+			updates.push({
+				key: 'missing_subtitles_interval_hours',
+				value: String(settings.missingSubtitlesIntervalHours)
+			});
+		}
+		if (settings.subtitleUpgradeIntervalHours !== undefined) {
+			updates.push({
+				key: 'subtitle_upgrade_interval_hours',
+				value: String(settings.subtitleUpgradeIntervalHours)
+			});
+		}
+		if (settings.subtitleSearchOnImportEnabled !== undefined) {
+			updates.push({
+				key: 'subtitle_search_on_import_enabled',
+				value: String(settings.subtitleSearchOnImportEnabled)
 			});
 		}
 
@@ -274,6 +311,14 @@ export class MonitoringScheduler extends EventEmitter {
 			Math.max(settings.cutoffUnmetSearchIntervalHours, MIN_INTERVAL_HOURS)
 		);
 		this.taskIntervals.set('pendingRelease', DEFAULT_INTERVALS.pendingRelease);
+		this.taskIntervals.set(
+			'missingSubtitles',
+			Math.max(settings.missingSubtitlesIntervalHours, MIN_INTERVAL_HOURS)
+		);
+		this.taskIntervals.set(
+			'subtitleUpgrade',
+			Math.max(settings.subtitleUpgradeIntervalHours, MIN_INTERVAL_HOURS)
+		);
 
 		// Log scheduled intervals
 		for (const [taskType, intervalHours] of this.taskIntervals.entries()) {
@@ -461,6 +506,14 @@ export class MonitoringScheduler extends EventEmitter {
 				const { executePendingReleaseTask } = await import('./tasks/PendingReleaseTask.js');
 				return await executePendingReleaseTask();
 			}
+			case 'missingSubtitles': {
+				const { executeMissingSubtitlesTask } = await import('./tasks/MissingSubtitlesTask.js');
+				return await executeMissingSubtitlesTask();
+			}
+			case 'subtitleUpgrade': {
+				const { executeSubtitleUpgradeTask } = await import('./tasks/SubtitleUpgradeTask.js');
+				return await executeSubtitleUpgradeTask();
+			}
 			default:
 				throw new Error(`Unknown task type: ${taskType}`);
 		}
@@ -487,6 +540,14 @@ export class MonitoringScheduler extends EventEmitter {
 
 	async runPendingReleaseProcessing(): Promise<TaskResult> {
 		return await this.executeTaskManually('pendingRelease');
+	}
+
+	async runMissingSubtitlesSearch(): Promise<TaskResult> {
+		return await this.executeTaskManually('missingSubtitles');
+	}
+
+	async runSubtitleUpgradeSearch(): Promise<TaskResult> {
+		return await this.executeTaskManually('subtitleUpgrade');
 	}
 
 	private async executeTaskManually(taskType: string): Promise<TaskResult> {
@@ -558,7 +619,9 @@ export class MonitoringScheduler extends EventEmitter {
 				upgrade: getTaskStatus('upgrade', settings.upgradeSearchIntervalHours),
 				newEpisode: getTaskStatus('newEpisode', settings.newEpisodeCheckIntervalHours),
 				cutoffUnmet: getTaskStatus('cutoffUnmet', settings.cutoffUnmetSearchIntervalHours),
-				pendingRelease: getTaskStatus('pendingRelease', DEFAULT_INTERVALS.pendingRelease)
+				pendingRelease: getTaskStatus('pendingRelease', DEFAULT_INTERVALS.pendingRelease),
+				missingSubtitles: getTaskStatus('missingSubtitles', settings.missingSubtitlesIntervalHours),
+				subtitleUpgrade: getTaskStatus('subtitleUpgrade', settings.subtitleUpgradeIntervalHours)
 			}
 		};
 	}

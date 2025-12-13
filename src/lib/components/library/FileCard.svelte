@@ -4,6 +4,7 @@
 	import MediaInfoPopover from './MediaInfoPopover.svelte';
 	import { SubtitleDisplay } from '$lib/components/subtitles';
 	import { File, Trash2, Calendar, HardDrive, Subtitles, Download, Loader2 } from 'lucide-svelte';
+	import { normalizeLanguageCode } from '$lib/shared/languages';
 
 	interface Subtitle {
 		id: string;
@@ -11,6 +12,7 @@
 		isForced?: boolean;
 		isHearingImpaired?: boolean;
 		format?: string;
+		isEmbedded?: boolean;
 	}
 
 	interface Props {
@@ -30,6 +32,33 @@
 		onSubtitleAutoSearch,
 		autoSearching = false
 	}: Props = $props();
+
+	// Combine external subtitles with embedded subtitles from mediaInfo
+	const allSubtitles = $derived.by(() => {
+		const combined: Subtitle[] = [...subtitles];
+
+		// Add embedded subtitles from mediaInfo (if not already covered by external)
+		const embeddedLangs = file.mediaInfo?.subtitleLanguages ?? [];
+		const externalLangSet = new Set(subtitles.map((s) => s.language));
+
+		for (const lang of embeddedLangs) {
+			const normalized = normalizeLanguageCode(lang);
+			// Only add if we don't already have an external subtitle for this language
+			if (!externalLangSet.has(normalized)) {
+				combined.push({
+					id: `embedded-${lang}`,
+					language: normalized,
+					isForced: false,
+					isHearingImpaired: false,
+					format: 'embedded',
+					isEmbedded: true
+				});
+				externalLangSet.add(normalized); // Prevent duplicates from same language appearing multiple times
+			}
+		}
+
+		return combined;
+	});
 
 	function formatBytes(bytes: number | null): string {
 		if (!bytes) return 'Unknown size';
@@ -153,7 +182,7 @@
 	<div class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-base-300 pt-3">
 		<div class="flex items-center gap-2">
 			<Subtitles size={14} class="text-base-content/50" />
-			<SubtitleDisplay {subtitles} size="sm" />
+			<SubtitleDisplay subtitles={allSubtitles} size="sm" />
 		</div>
 		{#if onSubtitleSearch || onSubtitleAutoSearch}
 			<div class="flex items-center gap-1">

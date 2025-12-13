@@ -181,6 +181,35 @@ Cinephage supports both:
 
 ---
 
+## Embedded Subtitle Support
+
+Cinephage recognizes embedded subtitles within video containers (MKV, MP4, etc.) and counts them toward language profile satisfaction.
+
+### How It Works
+
+1. During media analysis, Cinephage extracts subtitle track information from the video file using ffprobe
+2. Embedded languages are stored in `mediaInfo.subtitleLanguages`
+3. When checking if a language profile is satisfied, both external subtitle files AND embedded tracks are considered
+4. If embedded subs match a required language, no external download is triggered
+
+### Benefits
+
+- **No redundant downloads**: Files with built-in subtitles won't trigger unnecessary searches
+- **Accurate status display**: UI shows both embedded and external subtitles
+- **Profile flexibility**: Mix embedded and external subtitles to satisfy profiles
+
+### Limitations
+
+- Embedded subtitles are treated as non-forced, non-hearing-impaired
+- If you specifically need forced or HI subtitles, external downloads may still be triggered
+- Language code normalization converts 3-letter codes (eng, fre) to 2-letter (en, fr)
+
+### Visual Distinction
+
+In the UI, embedded subtitles are displayed with their language codes alongside external subtitle files. The system merges both sources to show a complete subtitle inventory for each file.
+
+---
+
 ## Subtitle Management
 
 ### File Naming

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Embedded subtitle recognition** - Language profiles now count embedded subtitles (in MKV/video containers) as satisfying requirements, preventing unnecessary external subtitle downloads
+- **Missing Subtitles monitoring task** - Automatically searches for subtitles on media missing required languages (default: every 6 hours)
+- **Subtitle Upgrade monitoring task** - Searches for better-scoring subtitles when profile allows upgrades (default: daily)
+- **Subtitle search on import** - Triggers automatic subtitle search when media files are imported
 - **OldToons.World indexer** - Private UNIT3D tracker for classic animated content with API key authentication
 - **SABnzbd download client** - Full usenet downloader support with queue/history monitoring
 - **Newznab protocol** - Generic usenet indexer integration with dynamic capability discovery
@@ -46,6 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Language profile assignment** - Fixed default language profile not being assigned when adding media with subtitles enabled (query pattern issue)
 - **Subf2m subtitle provider** - Updated CSS selectors to match current site structure
 
 - HLS streams starting from end instead of beginning (missing VOD markers)

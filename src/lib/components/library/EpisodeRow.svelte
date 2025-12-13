@@ -14,6 +14,7 @@
 	import QualityBadge from './QualityBadge.svelte';
 	import AutoSearchStatus from './AutoSearchStatus.svelte';
 	import { SubtitleDisplay } from '$lib/components/subtitles';
+	import { normalizeLanguageCode } from '$lib/shared/languages';
 
 	interface EpisodeFile {
 		id: string;
@@ -41,6 +42,7 @@
 		isForced?: boolean;
 		isHearingImpaired?: boolean;
 		format?: string;
+		isEmbedded?: boolean;
 	}
 
 	interface Episode {
@@ -104,6 +106,34 @@
 		if (autoSearchResult?.grabbed) return 'success';
 		if (autoSearchResult?.error) return 'failed';
 		return 'idle';
+	});
+
+	// Combine external subtitles with embedded subtitles from mediaInfo
+	const allSubtitles = $derived.by(() => {
+		const external = episode.subtitles ?? [];
+		const combined: Subtitle[] = [...external];
+
+		// Add embedded subtitles from file mediaInfo (if not already covered by external)
+		const embeddedLangs = episode.file?.mediaInfo?.subtitleLanguages ?? [];
+		const externalLangSet = new Set(external.map((s) => s.language));
+
+		for (const lang of embeddedLangs) {
+			const normalized = normalizeLanguageCode(lang);
+			// Only add if we don't already have an external subtitle for this language
+			if (!externalLangSet.has(normalized)) {
+				combined.push({
+					id: `embedded-${lang}`,
+					language: normalized,
+					isForced: false,
+					isHearingImpaired: false,
+					format: 'embedded',
+					isEmbedded: true
+				});
+				externalLangSet.add(normalized); // Prevent duplicates
+			}
+		}
+
+		return combined;
 	});
 
 	function formatAirDate(dateString: string | null): string {
@@ -225,10 +255,10 @@
 					<CheckCircle size={16} class="text-success" />
 					<QualityBadge quality={episode.file.quality} mediaInfo={null} size="sm" />
 				</div>
-				{#if episode.subtitles && episode.subtitles.length > 0}
+				{#if allSubtitles.length > 0}
 					<div class="flex items-center gap-1">
 						<Subtitles size={12} class="text-base-content/50" />
-						<SubtitleDisplay subtitles={episode.subtitles} maxDisplay={3} size="xs" />
+						<SubtitleDisplay subtitles={allSubtitles} maxDisplay={3} size="xs" />
 					</div>
 				{/if}
 			</div>

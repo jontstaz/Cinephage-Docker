@@ -9,3 +9,5 @@ export * from './UpgradeMonitorTask.js';
 export * from './NewEpisodeMonitorTask.js';
 export * from './CutoffUnmetTask.js';
 export * from './PendingReleaseTask.js';
+export * from './MissingSubtitlesTask.js';
+export * from './SubtitleUpgradeTask.js';

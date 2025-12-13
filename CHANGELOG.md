@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Task execution history** - All monitoring tasks now record per-item activity to the history database
+- **30-day history cleanup** - Automatic cleanup of old task history entries on startup
+- **Unified task registry** - Centralized task definitions with consistent configuration
 - **Embedded subtitle recognition** - Language profiles now count embedded subtitles (in MKV/video containers) as satisfying requirements, preventing unnecessary external subtitle downloads
 - **Missing Subtitles monitoring task** - Automatically searches for subtitles on media missing required languages (default: every 6 hours)
 - **Subtitle Upgrade monitoring task** - Searches for better-scoring subtitles when profile allows upgrades (default: daily)
@@ -28,6 +31,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- **Unified Tasks page** - Consolidated monitoring settings into Settings > Tasks (removed separate Monitoring page)
+- **CutoffUnmet task** - Now specifically targets items below quality cutoff (daily frequency)
+- **Upgrade task** - Now searches ALL items for potential upgrades, not just below cutoff (weekly frequency)
+- **Subtitle task activity** - MissingSubtitles and SubtitleUpgrade tasks now record detailed per-item history
 - RequestBuilder now recognizes `name` and `search` as valid search parameters (for UNIT3D trackers)
 - Migrated from native TypeScript indexers to YAML-only definitions
 - Rebuilt indexer database schema with definitions table and enhanced status tracking
@@ -43,6 +50,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
+- **Monitoring settings page** - Consolidated into unified Tasks page
+- **Duplicate task registry** - Removed registry.ts in favor of UnifiedTaskRegistry
 - Native TypeScript indexer implementations (replaced by YAML definitions)
 - Old indexer registry and base classes
 - **Podnapisi subtitle provider** - Server no longer responding
@@ -50,6 +59,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- **Monitoring history typo** - Fixed `grabbeRelease` → `grabbedRelease` in task history recording
+- **Svelte state warnings** - Fixed TaskCard and IntervalEditor components capturing initial prop values
 - **Language profile assignment** - Fixed default language profile not being assigned when adding media with subtitles enabled (query pattern issue)
 - **Subf2m subtitle provider** - Updated CSS selectors to match current site structure
 

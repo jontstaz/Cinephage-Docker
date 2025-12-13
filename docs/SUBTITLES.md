@@ -127,7 +127,7 @@ Enable automatic subtitle search when media is imported.
 
 ### Configuration
 
-Enable in Settings > Monitoring:
+Enable in **Settings > Tasks**:
 
 - **Auto-search on import**: Enable/disable automatic subtitle search
 - **Search trigger**: When to search for subtitles during import

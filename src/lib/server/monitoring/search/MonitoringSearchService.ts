@@ -70,7 +70,7 @@ export interface ItemSearchResult {
 	searched: boolean;
 	releasesFound: number;
 	grabbed: boolean;
-	grabbeRelease?: string;
+	grabbedRelease?: string;
 	queueItemId?: string;
 	error?: string;
 	skipped?: boolean;
@@ -98,6 +98,12 @@ export interface UpgradeSearchOptions {
 	movieIds?: string[];
 	seriesIds?: string[];
 	maxItems?: number;
+	/**
+	 * If true, only search items where cutoff is unmet (below target quality).
+	 * If false, search ALL items with files for potential upgrades.
+	 * Default: true (matches legacy behavior)
+	 */
+	cutoffUnmetOnly?: boolean;
 }
 
 /**
@@ -577,7 +583,7 @@ export class MonitoringSearchService {
 				logger.info('[MonitoringSearch] Season pack grabbed successfully', {
 					seriesTitle: seriesData.title,
 					season: seasonNumber,
-					releaseName: packResult.grabbeRelease
+					releaseName: packResult.grabbedRelease
 				});
 			} else {
 				// Log that we'll try individual episodes instead
@@ -615,9 +621,9 @@ export class MonitoringSearchService {
 				const searchResult = await this.searchAndGrabEpisode(seriesData, episode);
 
 				// If we grabbed a pack, mark all episodes in that season as handled
-				if (searchResult.grabbed && searchResult.grabbeRelease) {
+				if (searchResult.grabbed && searchResult.grabbedRelease) {
 					// Check if the grabbed release is a season pack
-					const parsed = parser.parse(searchResult.grabbeRelease);
+					const parsed = parser.parse(searchResult.grabbedRelease);
 					if (parsed.episode?.isSeasonPack) {
 						// Mark all episodes in this season as handled
 						for (const ep of missingEpisodes) {
@@ -626,7 +632,7 @@ export class MonitoringSearchService {
 						logger.info('[MonitoringSearch] Season pack grabbed via episode search', {
 							seriesTitle: seriesData.title,
 							season: seasonNumber,
-							releaseName: searchResult.grabbeRelease
+							releaseName: searchResult.grabbedRelease
 						});
 					}
 				}
@@ -792,7 +798,7 @@ export class MonitoringSearchService {
 				searched: true,
 				releasesFound: seasonPacks.length,
 				grabbed: grabResult?.success ?? false,
-				grabbeRelease: grabResult?.releaseName,
+				grabbedRelease: grabResult?.releaseName,
 				queueItemId: grabResult?.queueItemId,
 				error: grabResult?.error
 			};
@@ -811,10 +817,12 @@ export class MonitoringSearchService {
 	}
 
 	/**
-	 * Search for upgrades (movies/episodes with files below cutoff)
+	 * Search for upgrades (movies/episodes with files below cutoff or all items)
+	 * @param options.cutoffUnmetOnly - If true, only search items below cutoff. If false, search all items.
 	 */
 	async searchForUpgrades(options: UpgradeSearchOptions = {}): Promise<SearchResults> {
-		logger.info('[MonitoringSearch] Starting upgrade search', { ...options });
+		const cutoffUnmetOnly = options.cutoffUnmetOnly ?? true; // Default to legacy behavior
+		logger.info('[MonitoringSearch] Starting upgrade search', { ...options, cutoffUnmetOnly });
 
 		const results: ItemSearchResult[] = [];
 		const maxItems = options.maxItems || 50; // Limit to prevent overwhelming indexers
@@ -822,13 +830,13 @@ export class MonitoringSearchService {
 		try {
 			// Search for movie upgrades
 			if (!options.seriesIds) {
-				const movieResults = await this.searchMovieUpgrades(options.movieIds, maxItems);
+				const movieResults = await this.searchMovieUpgrades(options.movieIds, maxItems, cutoffUnmetOnly);
 				results.push(...movieResults);
 			}
 
 			// Search for episode upgrades
 			if (!options.movieIds) {
-				const episodeResults = await this.searchEpisodeUpgrades(options.seriesIds, maxItems);
+				const episodeResults = await this.searchEpisodeUpgrades(options.seriesIds, maxItems, cutoffUnmetOnly);
 				results.push(...episodeResults);
 			}
 		} catch (error) {
@@ -840,10 +848,12 @@ export class MonitoringSearchService {
 
 	/**
 	 * Search for movie upgrades
+	 * @param cutoffUnmetOnly - If true, only search items below cutoff. If false, search all items with files.
 	 */
 	private async searchMovieUpgrades(
 		movieIds?: string[],
-		maxItems: number = 50
+		maxItems: number = 50,
+		cutoffUnmetOnly: boolean = true
 	): Promise<ItemSearchResult[]> {
 		const results: ItemSearchResult[] = [];
 
@@ -863,7 +873,8 @@ export class MonitoringSearchService {
 			});
 
 			logger.info('[MonitoringSearch] Found movies with files for upgrade check', {
-				count: moviesWithFiles.length
+				count: moviesWithFiles.length,
+				cutoffUnmetOnly
 			});
 
 			// Get existing files
@@ -918,20 +929,22 @@ export class MonitoringSearchService {
 					continue;
 				}
 
-				// Check if cutoff is unmet (needs upgrade)
-				const cutoffResult = await cutoffSpec.isSatisfied(context);
-				if (!cutoffResult.accepted) {
-					results.push({
-						itemId: movie.id,
-						itemType: 'movie',
-						title: movie.title,
-						searched: false,
-						releasesFound: 0,
-						grabbed: false,
-						skipped: true,
-						skipReason: cutoffResult.reason
-					});
-					continue;
+				// Check if cutoff is unmet (only when cutoffUnmetOnly is true)
+				if (cutoffUnmetOnly) {
+					const cutoffResult = await cutoffSpec.isSatisfied(context);
+					if (!cutoffResult.accepted) {
+						results.push({
+							itemId: movie.id,
+							itemType: 'movie',
+							title: movie.title,
+							searched: false,
+							releasesFound: 0,
+							grabbed: false,
+							skipped: true,
+							skipReason: cutoffResult.reason
+						});
+						continue;
+					}
 				}
 
 				// Update lastSearchTime before searching
@@ -956,10 +969,12 @@ export class MonitoringSearchService {
 
 	/**
 	 * Search for episode upgrades
+	 * @param cutoffUnmetOnly - If true, only search items below cutoff. If false, search all items with files.
 	 */
 	private async searchEpisodeUpgrades(
 		seriesIds?: string[],
-		maxItems: number = 50
+		maxItems: number = 50,
+		cutoffUnmetOnly: boolean = true
 	): Promise<ItemSearchResult[]> {
 		const results: ItemSearchResult[] = [];
 
@@ -988,7 +1003,8 @@ export class MonitoringSearchService {
 			});
 
 			logger.info('[MonitoringSearch] Found episodes with files for upgrade check', {
-				count: episodesWithFiles.length
+				count: episodesWithFiles.length,
+				cutoffUnmetOnly
 			});
 
 			// Preload season episode counts to avoid N+1 queries
@@ -1029,10 +1045,12 @@ export class MonitoringSearchService {
 					continue; // Skip silently - recently searched
 				}
 
-				// Check if cutoff is unmet
-				const cutoffResult = await cutoffSpec.isSatisfied(context);
-				if (!cutoffResult.accepted) {
-					continue; // Skip silently - already at cutoff
+				// Check if cutoff is unmet (only when cutoffUnmetOnly is true)
+				if (cutoffUnmetOnly) {
+					const cutoffResult = await cutoffSpec.isSatisfied(context);
+					if (!cutoffResult.accepted) {
+						continue; // Skip silently - already at cutoff
+					}
 				}
 
 				// Update lastSearchTime before searching
@@ -1180,7 +1198,7 @@ export class MonitoringSearchService {
 						searched: true,
 						releasesFound: searchResult.releases.length,
 						grabbed: grabResult.success,
-						grabbeRelease: grabResult.releaseName,
+						grabbedRelease: grabResult.releaseName,
 						queueItemId: grabResult.queueItemId,
 						error: grabResult.error
 					};
@@ -1361,7 +1379,7 @@ export class MonitoringSearchService {
 						searched: true,
 						releasesFound: searchResult.releases.length,
 						grabbed: grabResult.success,
-						grabbeRelease: grabResult.releaseName,
+						grabbedRelease: grabResult.releaseName,
 						queueItemId: grabResult.queueItemId,
 						error: grabResult.error
 					};
@@ -1617,7 +1635,7 @@ export class MonitoringSearchService {
 				searched: true,
 				releasesFound: searchResult.releases.length,
 				grabbed: grabResult?.success ?? false,
-				grabbeRelease: grabResult?.releaseName,
+				grabbedRelease: grabResult?.releaseName,
 				queueItemId: grabResult?.queueItemId,
 				error: grabResult?.error
 			};
@@ -1799,7 +1817,7 @@ export class MonitoringSearchService {
 				searched: true,
 				releasesFound: searchResult.releases.length,
 				grabbed: grabResult?.success ?? false,
-				grabbeRelease: grabResult?.releaseName,
+				grabbedRelease: grabResult?.releaseName,
 				queueItemId: grabResult?.queueItemId,
 				error: grabResult?.error
 			};

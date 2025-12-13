@@ -9,7 +9,7 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getTaskById } from '$lib/server/tasks/registry';
+import { getUnifiedTaskById } from '$lib/server/tasks/UnifiedTaskRegistry';
 import { taskHistoryService } from '$lib/server/tasks/TaskHistoryService';
 import { createChildLogger } from '$lib/logging';
 
@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ params, fetch, request }) => {
 	const { taskId } = params;
 
 	// Validate task exists in registry
-	const taskDef = getTaskById(taskId);
+	const taskDef = getUnifiedTaskById(taskId);
 	if (!taskDef) {
 		return json({ success: false, error: `Task '${taskId}' not found` }, { status: 404 });
 	}
@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ params, fetch, request }) => {
 		return json({ success: false, error: `Task '${taskId}' is already running` }, { status: 409 });
 	}
 
-	logger.info('[TaskRunAPI] Starting task', { taskId, endpoint: taskDef.endpoint });
+	logger.info('[TaskRunAPI] Starting task', { taskId, endpoint: taskDef.runEndpoint });
 
 	// Start tracking the task
 	let historyId: string;
@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ params, fetch, request }) => {
 
 	try {
 		// Execute the task's endpoint
-		const response = await fetch(taskDef.endpoint, {
+		const response = await fetch(taskDef.runEndpoint, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',

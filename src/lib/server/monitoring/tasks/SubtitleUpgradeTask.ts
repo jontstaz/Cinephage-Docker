@@ -6,7 +6,7 @@
  */
 
 import { db } from '$lib/server/db/index.js';
-import { movies, series, episodes, subtitles, subtitleHistory } from '$lib/server/db/schema.js';
+import { movies, series, episodes, subtitles, subtitleHistory, monitoringHistory } from '$lib/server/db/schema.js';
 import { eq, and, isNotNull, lt } from 'drizzle-orm';
 import { getSubtitleSearchService } from '$lib/server/subtitles/services/SubtitleSearchService.js';
 import { getSubtitleDownloadService } from '$lib/server/subtitles/services/SubtitleDownloadService.js';
@@ -31,10 +31,11 @@ const MIN_SCORE_IMPROVEMENT = 10;
 
 /**
  * Execute subtitle upgrade task
+ * @param taskHistoryId - Optional ID linking to taskHistory for activity tracking
  */
-export async function executeSubtitleUpgradeTask(): Promise<TaskResult> {
+export async function executeSubtitleUpgradeTask(taskHistoryId?: string): Promise<TaskResult> {
 	const executedAt = new Date();
-	logger.info('[SubtitleUpgradeTask] Starting subtitle upgrade search');
+	logger.info('[SubtitleUpgradeTask] Starting subtitle upgrade search', { taskHistoryId });
 
 	let itemsProcessed = 0;
 	let itemsGrabbed = 0;
@@ -51,7 +52,8 @@ export async function executeSubtitleUpgradeTask(): Promise<TaskResult> {
 			searchService,
 			downloadService,
 			profileService,
-			executedAt
+			executedAt,
+			taskHistoryId
 		);
 
 		itemsProcessed += movieResults.processed;
@@ -70,7 +72,8 @@ export async function executeSubtitleUpgradeTask(): Promise<TaskResult> {
 			searchService,
 			downloadService,
 			profileService,
-			executedAt
+			executedAt,
+			taskHistoryId
 		);
 
 		itemsProcessed += episodeResults.processed;
@@ -109,7 +112,8 @@ async function searchMovieSubtitleUpgrades(
 	searchService: ReturnType<typeof getSubtitleSearchService>,
 	downloadService: ReturnType<typeof getSubtitleDownloadService>,
 	profileService: LanguageProfileService,
-	executedAt: Date
+	executedAt: Date,
+	taskHistoryId?: string
 ): Promise<{ processed: number; upgraded: number; errors: number }> {
 	let processed = 0;
 	let upgraded = 0;
@@ -160,6 +164,11 @@ async function searchMovieSubtitleUpgrades(
 			batch.map(async ({ movie, subtitles: movieSubs }) => {
 				if (!movie.languageProfileId) return;
 
+				let movieUpgraded = 0;
+				let movieError: string | undefined;
+				let oldScore: number | undefined;
+				let newScore: number | undefined;
+
 				try {
 					// Get profile and check if upgrades are allowed
 					const profile = await profileService.getProfile(movie.languageProfileId);
@@ -188,11 +197,13 @@ async function searchMovieSubtitleUpgrades(
 
 						if (betterMatch) {
 							try {
-								const oldScore = currentScore;
+								oldScore = currentScore;
+								newScore = betterMatch.matchScore;
 								await downloadService.downloadForMovie(movie.id, betterMatch);
 								upgraded++;
+								movieUpgraded++;
 
-								// Record upgrade in history
+								// Record upgrade in subtitle history
 								await db.insert(subtitleHistory).values({
 									movieId: movie.id,
 									action: 'upgraded',
@@ -213,20 +224,48 @@ async function searchMovieSubtitleUpgrades(
 								});
 							} catch (downloadError) {
 								errorCount++;
+								movieError = downloadError instanceof Error ? downloadError.message : String(downloadError);
 								logger.warn('[SubtitleUpgradeTask] Failed to download upgraded subtitle', {
 									movieId: movie.id,
 									language: existingSub.language,
-									error:
-										downloadError instanceof Error ? downloadError.message : String(downloadError)
+									error: movieError
 								});
 							}
 						}
 					}
+
+					// Record to monitoring history for activity tracking
+					await db.insert(monitoringHistory).values({
+						taskHistoryId,
+						taskType: 'subtitleUpgrade',
+						movieId: movie.id,
+						status: movieUpgraded > 0 ? 'grabbed' : movieError ? 'error' : 'no_results',
+						releasesFound: movieSubs.length, // Number of existing subtitles evaluated
+						releaseGrabbed: movieUpgraded > 0 ? `${movieUpgraded} upgrade(s)` : undefined,
+						isUpgrade: true,
+						oldScore,
+						newScore,
+						errorMessage: movieError,
+						executedAt: executedAt.toISOString()
+					});
 				} catch (error) {
 					errorCount++;
+					const errorMsg = error instanceof Error ? error.message : String(error);
 					logger.warn('[SubtitleUpgradeTask] Error processing movie subtitles', {
 						movieId: movie.id,
-						error: error instanceof Error ? error.message : String(error)
+						error: errorMsg
+					});
+
+					// Record error to monitoring history
+					await db.insert(monitoringHistory).values({
+						taskHistoryId,
+						taskType: 'subtitleUpgrade',
+						movieId: movie.id,
+						status: 'error',
+						releasesFound: 0,
+						isUpgrade: true,
+						errorMessage: errorMsg,
+						executedAt: executedAt.toISOString()
 					});
 				}
 			})
@@ -243,7 +282,8 @@ async function searchEpisodeSubtitleUpgrades(
 	searchService: ReturnType<typeof getSubtitleSearchService>,
 	downloadService: ReturnType<typeof getSubtitleDownloadService>,
 	profileService: LanguageProfileService,
-	executedAt: Date
+	executedAt: Date,
+	taskHistoryId?: string
 ): Promise<{ processed: number; upgraded: number; errors: number }> {
 	let processed = 0;
 	let upgraded = 0;
@@ -298,6 +338,11 @@ async function searchEpisodeSubtitleUpgrades(
 				const profileId = seriesProfileMap.get(episode.seriesId);
 				if (!profileId) return;
 
+				let episodeUpgraded = 0;
+				let episodeError: string | undefined;
+				let oldScore: number | undefined;
+				let newScore: number | undefined;
+
 				try {
 					// Get profile and check if upgrades are allowed
 					const profile = await profileService.getProfile(profileId);
@@ -331,11 +376,13 @@ async function searchEpisodeSubtitleUpgrades(
 
 						if (betterMatch) {
 							try {
-								const oldScore = currentScore;
+								oldScore = currentScore;
+								newScore = betterMatch.matchScore;
 								await downloadService.downloadForEpisode(episode.id, betterMatch);
 								upgraded++;
+								episodeUpgraded++;
 
-								// Record upgrade in history
+								// Record upgrade in subtitle history
 								await db.insert(subtitleHistory).values({
 									episodeId: episode.id,
 									action: 'upgraded',
@@ -356,20 +403,50 @@ async function searchEpisodeSubtitleUpgrades(
 								});
 							} catch (downloadError) {
 								errorCount++;
+								episodeError = downloadError instanceof Error ? downloadError.message : String(downloadError);
 								logger.warn('[SubtitleUpgradeTask] Failed to download upgraded subtitle', {
 									episodeId: episode.id,
 									language: existingSub.language,
-									error:
-										downloadError instanceof Error ? downloadError.message : String(downloadError)
+									error: episodeError
 								});
 							}
 						}
 					}
+
+					// Record to monitoring history for activity tracking
+					await db.insert(monitoringHistory).values({
+						taskHistoryId,
+						taskType: 'subtitleUpgrade',
+						episodeId: episode.id,
+						seriesId: episode.seriesId,
+						status: episodeUpgraded > 0 ? 'grabbed' : episodeError ? 'error' : 'no_results',
+						releasesFound: episodeSubs.length, // Number of existing subtitles evaluated
+						releaseGrabbed: episodeUpgraded > 0 ? `${episodeUpgraded} upgrade(s)` : undefined,
+						isUpgrade: true,
+						oldScore,
+						newScore,
+						errorMessage: episodeError,
+						executedAt: executedAt.toISOString()
+					});
 				} catch (error) {
 					errorCount++;
+					const errorMsg = error instanceof Error ? error.message : String(error);
 					logger.warn('[SubtitleUpgradeTask] Error processing episode subtitles', {
 						episodeId: episode.id,
-						error: error instanceof Error ? error.message : String(error)
+						error: errorMsg
+					});
+
+					// Record error to monitoring history
+					await db.insert(monitoringHistory).values({
+						taskHistoryId,
+						taskType: 'subtitleUpgrade',
+						episodeId: episode.id,
+						seriesId: episode.seriesId,
+						status: 'error',
+						releasesFound: 0,
+						isUpgrade: true,
+						errorMessage: errorMsg,
+						executedAt: executedAt.toISOString()
 					});
 				}
 			})

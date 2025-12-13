@@ -20,7 +20,6 @@
 		Filter,
 		Download,
 		Shield,
-		Clock,
 		ListTodo
 	} from 'lucide-svelte';
 
@@ -45,7 +44,6 @@
 				{ href: '/settings/general', label: 'General', icon: Settings },
 				{ href: '/settings/profiles', label: 'Quality Profiles', icon: Shield },
 				{ href: '/settings/integrations', label: 'Integrations', icon: Compass },
-				{ href: '/settings/monitoring', label: 'Monitoring', icon: Clock },
 				{ href: '/settings/tasks', label: 'Tasks', icon: ListTodo },
 				{ href: '/settings/filters', label: 'Global Filters', icon: Filter },
 				{ href: '/profile', label: 'Profile', icon: User }

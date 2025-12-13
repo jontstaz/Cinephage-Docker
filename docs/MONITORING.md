@@ -79,8 +79,10 @@ Finds content that's below your quality profile's defined cutoff.
 
 1. Identifies files below cutoff score
 2. Searches for releases meeting cutoff
-3. Only searches for realistically available upgrades
-4. Different from upgrade monitoring (cutoff vs. any improvement)
+3. Only targets items that haven't reached their target quality yet
+4. Records per-item activity to task history
+
+> **Note:** This task is distinct from Upgrade Monitoring. CutoffUnmet only searches items **below** your quality cutoff, while Upgrade Monitoring searches **all** items for potential improvements regardless of cutoff status.
 
 **Configuration:**
 
@@ -145,19 +147,21 @@ Searches for better-scoring subtitles when the language profile allows upgrades.
 
 ## Configuration
 
-### Accessing Monitoring Settings
+### Accessing Task Settings
 
-Navigate to Settings > Monitoring to configure:
+Navigate to **Settings > Tasks** to configure:
 
-1. Enable/disable individual tasks
+1. View task status and last run times
 2. Set intervals for each task
-3. Configure task-specific options
+3. Run tasks manually
+4. View execution history and per-item activity
 
 ### Global Settings
 
 - **Remember last run**: Tasks remember when they last ran and resume accordingly after restart
 - **Background execution**: All tasks run in background threads
 - **Error handling**: Failed tasks retry with exponential backoff
+- **History retention**: Task history is automatically cleaned up after 30 days
 
 ### Per-Item Settings
 
@@ -173,9 +177,9 @@ Override monitoring behavior for specific movies or series:
 
 Run any monitoring task manually:
 
-1. Navigate to Settings > Monitoring
+1. Navigate to **Settings > Tasks**
 2. Click "Run Now" on the desired task
-3. View progress in the activity log
+3. View progress in the task history
 
 Or trigger from media detail pages:
 

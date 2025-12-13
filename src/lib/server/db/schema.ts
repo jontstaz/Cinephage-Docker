@@ -1066,6 +1066,8 @@ export const monitoringHistory = sqliteTable(
 		id: text('id')
 			.primaryKey()
 			.$defaultFn(() => randomUUID()),
+		// Link to parent task execution (for unified task history)
+		taskHistoryId: text('task_history_id').references(() => taskHistory.id, { onDelete: 'cascade' }),
 		// Task type that triggered this action
 		taskType: text('task_type').notNull(), // 'missing', 'upgrade', 'new_episode', 'cutoff_unmet'
 
@@ -1096,6 +1098,7 @@ export const monitoringHistory = sqliteTable(
 		errorMessage: text('error_message')
 	},
 	(table) => [
+		index('idx_monitoring_history_task_history').on(table.taskHistoryId),
 		index('idx_monitoring_history_movie').on(table.movieId),
 		index('idx_monitoring_history_series').on(table.seriesId),
 		index('idx_monitoring_history_episode').on(table.episodeId)

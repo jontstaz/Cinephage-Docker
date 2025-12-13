@@ -13,10 +13,12 @@ import type { TaskResult } from '../MonitoringScheduler.js';
 
 /**
  * Execute new episode search task
+ * @param intervalHours - The interval in hours for determining "recently aired"
+ * @param taskHistoryId - Optional ID linking to taskHistory for activity tracking
  */
-export async function executeNewEpisodeMonitorTask(intervalHours: number): Promise<TaskResult> {
+export async function executeNewEpisodeMonitorTask(intervalHours: number, taskHistoryId?: string): Promise<TaskResult> {
 	const executedAt = new Date();
-	logger.info('[NewEpisodeMonitorTask] Starting new episode search', { intervalHours });
+	logger.info('[NewEpisodeMonitorTask] Starting new episode search', { intervalHours, taskHistoryId });
 
 	let itemsProcessed = 0;
 	let itemsGrabbed = 0;
@@ -41,6 +43,7 @@ export async function executeNewEpisodeMonitorTask(intervalHours: number): Promi
 			if (!item.searched && item.skipped) continue;
 
 			await db.insert(monitoringHistory).values({
+				taskHistoryId,
 				taskType: 'new_episode',
 				episodeId: item.itemType === 'episode' ? item.itemId : undefined,
 				status: item.grabbed
@@ -51,7 +54,7 @@ export async function executeNewEpisodeMonitorTask(intervalHours: number): Promi
 							? 'found'
 							: 'no_results',
 				releasesFound: item.releasesFound,
-				releaseGrabbed: item.grabbeRelease,
+				releaseGrabbed: item.grabbedRelease,
 				queueItemId: item.queueItemId,
 				isUpgrade: false,
 				errorMessage: item.error,

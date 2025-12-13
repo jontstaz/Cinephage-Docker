@@ -689,7 +689,7 @@ This document outlines the test plan for the Cinephage monitoring system. Tests 
 
 **Steps:**
 
-1. Navigate to /settings/monitoring
+1. Navigate to /settings/tasks
 2. Verify all fields populated
 3. Check values match database
 

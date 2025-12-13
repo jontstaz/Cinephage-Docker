@@ -13,10 +13,11 @@ import type { TaskResult } from '../MonitoringScheduler.js';
 
 /**
  * Execute missing content search task
+ * @param taskHistoryId - Optional ID linking to taskHistory for activity tracking
  */
-export async function executeMissingContentTask(): Promise<TaskResult> {
+export async function executeMissingContentTask(taskHistoryId?: string): Promise<TaskResult> {
 	const executedAt = new Date();
-	logger.info('[MissingContentTask] Starting missing content search');
+	logger.info('[MissingContentTask] Starting missing content search', { taskHistoryId });
 
 	let itemsProcessed = 0;
 	let itemsGrabbed = 0;
@@ -42,6 +43,7 @@ export async function executeMissingContentTask(): Promise<TaskResult> {
 			if (!item.searched && item.skipped) continue; // Skip recording skipped items
 
 			await db.insert(monitoringHistory).values({
+				taskHistoryId,
 				taskType: 'missing',
 				movieId: item.itemType === 'movie' ? item.itemId : undefined,
 				status: item.grabbed
@@ -52,7 +54,7 @@ export async function executeMissingContentTask(): Promise<TaskResult> {
 							? 'found'
 							: 'no_results',
 				releasesFound: item.releasesFound,
-				releaseGrabbed: item.grabbeRelease,
+				releaseGrabbed: item.grabbedRelease,
 				queueItemId: item.queueItemId,
 				isUpgrade: false,
 				errorMessage: item.error,
@@ -79,6 +81,7 @@ export async function executeMissingContentTask(): Promise<TaskResult> {
 			if (!item.searched && item.skipped) continue;
 
 			await db.insert(monitoringHistory).values({
+				taskHistoryId,
 				taskType: 'missing',
 				episodeId: item.itemType === 'episode' ? item.itemId : undefined,
 				status: item.grabbed
@@ -89,7 +92,7 @@ export async function executeMissingContentTask(): Promise<TaskResult> {
 							? 'found'
 							: 'no_results',
 				releasesFound: item.releasesFound,
-				releaseGrabbed: item.grabbeRelease,
+				releaseGrabbed: item.grabbedRelease,
 				queueItemId: item.queueItemId,
 				isUpgrade: false,
 				errorMessage: item.error,

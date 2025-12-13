@@ -1,8 +1,12 @@
 /**
  * Upgrade Monitor Task
  *
- * Searches for better quality releases for existing files.
- * Runs periodically (default: weekly) to upgrade content below quality cutoff.
+ * Searches for better quality releases for ALL existing files.
+ * Runs periodically (default: weekly) to find any possible upgrades,
+ * regardless of whether the current file has met the quality cutoff.
+ *
+ * Note: This differs from CutoffUnmetTask which only searches items
+ * that are below the target quality cutoff.
  */
 
 import { db } from '$lib/server/db/index.js';
@@ -13,19 +17,22 @@ import type { TaskResult } from '../MonitoringScheduler.js';
 
 /**
  * Execute upgrade search task
+ * @param taskHistoryId - Optional ID linking to taskHistory for activity tracking
  */
-export async function executeUpgradeMonitorTask(): Promise<TaskResult> {
+export async function executeUpgradeMonitorTask(taskHistoryId?: string): Promise<TaskResult> {
 	const executedAt = new Date();
-	logger.info('[UpgradeMonitorTask] Starting upgrade search');
+	logger.info('[UpgradeMonitorTask] Starting upgrade search', { taskHistoryId });
 
 	let itemsProcessed = 0;
 	let itemsGrabbed = 0;
 	let errors = 0;
 
 	try {
-		// Search for upgrades (both movies and episodes)
+		// Search for ALL potential upgrades (both movies and episodes)
+		// cutoffUnmetOnly: false means we search everything, not just items below cutoff
 		const upgradeResults = await monitoringSearchService.searchForUpgrades({
-			maxItems: 50 // Limit to prevent overwhelming indexers
+			maxItems: 50, // Limit to prevent overwhelming indexers
+			cutoffUnmetOnly: false // Search all items for potential upgrades
 		});
 
 		itemsProcessed = upgradeResults.summary.searched;
@@ -43,6 +50,7 @@ export async function executeUpgradeMonitorTask(): Promise<TaskResult> {
 			if (!item.searched && item.skipped) continue;
 
 			await db.insert(monitoringHistory).values({
+				taskHistoryId,
 				taskType: 'upgrade',
 				movieId: item.itemType === 'movie' ? item.itemId : undefined,
 				episodeId: item.itemType === 'episode' ? item.itemId : undefined,
@@ -54,7 +62,7 @@ export async function executeUpgradeMonitorTask(): Promise<TaskResult> {
 							? 'found'
 							: 'no_results',
 				releasesFound: item.releasesFound,
-				releaseGrabbed: item.grabbeRelease,
+				releaseGrabbed: item.grabbedRelease,
 				queueItemId: item.queueItemId,
 				isUpgrade: true,
 				// Note: oldScore and newScore would require additional tracking

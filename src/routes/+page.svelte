@@ -474,9 +474,9 @@
 					<TrendingUp class="h-4 w-4" />
 					Indexers
 				</a>
-				<a href={resolve('/settings/monitoring')} class="btn btn-outline btn-sm">
+				<a href={resolve('/settings/tasks')} class="btn btn-outline btn-sm">
 					<PlayCircle class="h-4 w-4" />
-					Monitoring
+					Tasks
 				</a>
 			</div>
 		</div>

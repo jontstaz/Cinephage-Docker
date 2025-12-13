@@ -1,10 +1,11 @@
 /**
- * Unified Tasks Page Server Load
+ * Unified Tasks API
  *
- * Loads all tasks (scheduled + maintenance) with their status and history.
+ * GET /api/tasks - Returns all tasks with their current status
  */
 
-import type { PageServerLoad } from './$types';
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import {
 	UNIFIED_TASK_DEFINITIONS,
 	type UnifiedTask,
@@ -12,11 +13,15 @@ import {
 } from '$lib/server/tasks/UnifiedTaskRegistry';
 import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler';
 import { taskHistoryService } from '$lib/server/tasks/TaskHistoryService';
-import type { TaskHistoryEntry } from '$lib/types/task';
 
-export const load: PageServerLoad = async ({ depends }) => {
-	depends('app:tasks');
-
+/**
+ * GET /api/tasks
+ *
+ * Returns all unified tasks with their current status including:
+ * - Task definitions (name, description, category)
+ * - Runtime status (lastRunTime, nextRunTime, intervalHours, isRunning)
+ */
+export const GET: RequestHandler = async () => {
 	// Get monitoring status for scheduled tasks
 	const monitoringStatus = await monitoringScheduler.getStatus();
 
@@ -43,26 +48,16 @@ export const load: PageServerLoad = async ({ depends }) => {
 				return {
 					...def,
 					lastRunTime: lastRun?.completedAt ?? lastRun?.startedAt ?? null,
-					nextRunTime: null,
-					intervalHours: null,
+					nextRunTime: null, // Manual tasks don't have scheduled next runs
+					intervalHours: null, // Manual tasks don't have intervals
 					isRunning
 				};
 			}
 		})
 	);
 
-	// Get recent history for all tasks (for initial expansion)
-	const allTaskIds = UNIFIED_TASK_DEFINITIONS.map((t) => t.id);
-	const historyMap = await taskHistoryService.getHistoryForTasks(allTaskIds, 5);
-
-	// Convert Map to plain object for serialization
-	const taskHistory: Record<string, TaskHistoryEntry[]> = {};
-	for (const [taskId, entries] of historyMap) {
-		taskHistory[taskId] = entries;
-	}
-
-	return {
-		tasks,
-		taskHistory
-	};
+	return json({
+		success: true,
+		tasks
+	});
 };

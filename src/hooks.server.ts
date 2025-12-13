@@ -8,6 +8,7 @@ import { isFFprobeAvailable, getFFprobeVersion } from '$lib/server/library/ffpro
 import { downloadMonitor } from '$lib/server/downloadClients/monitoring';
 import { importService } from '$lib/server/downloadClients/import';
 import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
+import { taskHistoryService } from '$lib/server/tasks/TaskHistoryService.js';
 import { getExternalIdService } from '$lib/server/services/ExternalIdService.js';
 import { qualityFilter } from '$lib/server/quality';
 import { isAppError } from '$lib/errors';
@@ -107,6 +108,13 @@ async function initializeMonitoring() {
 		// Start the monitoring scheduler (automated searches for missing/upgrades/new episodes)
 		// Note: The scheduler has a built-in 5-minute grace period before running any tasks
 		await monitoringScheduler.initialize();
+
+		// Clean up old history entries (30-day retention)
+		// This runs on startup to prevent unbounded database growth
+		const deletedCount = await taskHistoryService.cleanupOldHistory(30);
+		if (deletedCount > 0) {
+			logger.info(`Cleaned up ${deletedCount} task history entries older than 30 days`);
+		}
 
 		monitoringInitialized = true;
 		logger.info('Monitoring scheduler initialized (tasks deferred by grace period)');

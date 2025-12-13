@@ -7,7 +7,7 @@
 
 import { db } from '$lib/server/db';
 import { taskHistory } from '$lib/server/db/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, inArray, sql, and, ne, lt } from 'drizzle-orm';
 import { createChildLogger } from '$lib/logging';
 import type { TaskHistoryEntry } from '$lib/types/task';
 
@@ -177,6 +177,142 @@ class TaskHistoryService {
 
 		// Clear in-memory running set
 		this.runningTasks.clear();
+	}
+
+	/**
+	 * Get history for a specific task with pagination.
+	 */
+	async getHistoryForTask(
+		taskId: string,
+		limit: number = 10,
+		offset: number = 0
+	): Promise<{ entries: TaskHistoryEntry[]; total: number }> {
+		const [entries, countResult] = await Promise.all([
+			db
+				.select()
+				.from(taskHistory)
+				.where(eq(taskHistory.taskId, taskId))
+				.orderBy(desc(taskHistory.startedAt))
+				.limit(limit)
+				.offset(offset),
+			db
+				.select({ count: sql<number>`count(*)` })
+				.from(taskHistory)
+				.where(eq(taskHistory.taskId, taskId))
+		]);
+
+		return {
+			entries: entries.map((entry) => ({
+				id: entry.id,
+				taskId: entry.taskId,
+				status: entry.status as 'running' | 'completed' | 'failed',
+				results: entry.results,
+				errors: entry.errors,
+				startedAt: entry.startedAt!,
+				completedAt: entry.completedAt
+			})),
+			total: Number(countResult[0]?.count ?? 0)
+		};
+	}
+
+	/**
+	 * Get history for multiple tasks at once.
+	 * Returns the most recent entries for each task.
+	 */
+	async getHistoryForTasks(
+		taskIds: string[],
+		limitPerTask: number = 5
+	): Promise<Map<string, TaskHistoryEntry[]>> {
+		if (taskIds.length === 0) {
+			return new Map();
+		}
+
+		// Get recent history for all requested tasks
+		const entries = await db
+			.select()
+			.from(taskHistory)
+			.where(inArray(taskHistory.taskId, taskIds))
+			.orderBy(desc(taskHistory.startedAt))
+			.limit(taskIds.length * limitPerTask * 2); // Get extra to ensure enough per task
+
+		// Group by taskId and limit each group
+		const grouped = new Map<string, TaskHistoryEntry[]>();
+
+		for (const taskId of taskIds) {
+			grouped.set(taskId, []);
+		}
+
+		for (const entry of entries) {
+			const taskEntries = grouped.get(entry.taskId);
+			if (taskEntries && taskEntries.length < limitPerTask) {
+				taskEntries.push({
+					id: entry.id,
+					taskId: entry.taskId,
+					status: entry.status as 'running' | 'completed' | 'failed',
+					results: entry.results,
+					errors: entry.errors,
+					startedAt: entry.startedAt!,
+					completedAt: entry.completedAt
+				});
+			}
+		}
+
+		return grouped;
+	}
+
+	/**
+	 * Get the last completed (non-running) run for a task.
+	 * Useful for showing "last successful run" even if a task is currently running.
+	 */
+	async getLastCompletedRunForTask(taskId: string): Promise<TaskHistoryEntry | null> {
+		const [entry] = await db
+			.select()
+			.from(taskHistory)
+			.where(and(eq(taskHistory.taskId, taskId), ne(taskHistory.status, 'running')))
+			.orderBy(desc(taskHistory.startedAt))
+			.limit(1);
+
+		if (!entry) return null;
+
+		return {
+			id: entry.id,
+			taskId: entry.taskId,
+			status: entry.status as 'running' | 'completed' | 'failed',
+			results: entry.results,
+			errors: entry.errors,
+			startedAt: entry.startedAt!,
+			completedAt: entry.completedAt
+		};
+	}
+
+	/**
+	 * Clean up old history entries beyond the retention period.
+	 * This removes entries from taskHistory (which cascade-deletes related monitoringHistory).
+	 *
+	 * @param retentionDays - Number of days to retain history (default: 30)
+	 * @returns Number of entries deleted
+	 */
+	async cleanupOldHistory(retentionDays: number = 30): Promise<number> {
+		const cutoffDate = new Date();
+		cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+		const cutoffIso = cutoffDate.toISOString();
+
+		const deletedEntries = await db
+			.delete(taskHistory)
+			.where(lt(taskHistory.startedAt, cutoffIso))
+			.returning({ id: taskHistory.id });
+
+		const count = deletedEntries.length;
+
+		if (count > 0) {
+			logger.info('[TaskHistoryService] Cleaned up old history entries', {
+				deletedCount: count,
+				retentionDays,
+				cutoffDate: cutoffIso
+			});
+		}
+
+		return count;
 	}
 }
 

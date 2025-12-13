@@ -33,10 +33,11 @@ interface ProcessingStats {
 
 /**
  * Execute the pending release processing task
+ * @param taskHistoryId - Optional ID linking to taskHistory for activity tracking
  */
-export async function executePendingReleaseTask(): Promise<TaskResult> {
+export async function executePendingReleaseTask(taskHistoryId?: string): Promise<TaskResult> {
 	const startTime = Date.now();
-	logger.info('[PendingReleaseTask] Starting pending release processing');
+	logger.info('[PendingReleaseTask] Starting pending release processing', { taskHistoryId });
 
 	const stats: ProcessingStats = {
 		processed: 0,

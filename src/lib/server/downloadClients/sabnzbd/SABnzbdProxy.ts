@@ -135,6 +135,8 @@ export class SABnzbdProxy {
 			priority
 		});
 
+		// For multipart requests with files, SABnzbd may need nzbname as a form field
+		// Send it both in URL params and as form field to ensure it's recognized
 		const response = await this.executeMultipartRequest(
 			'addfile',
 			params,
@@ -143,6 +145,10 @@ export class SABnzbdProxy {
 				filename,
 				data: nzbData,
 				contentType: 'application/x-nzb'
+			},
+			{
+				// Add nzbname as a form field - this may be required for file uploads
+				nzbname: nzbname
 			}
 		);
 
@@ -350,12 +356,11 @@ export class SABnzbdProxy {
 
 		// Add additional fields if provided
 		if (fields) {
+			logger.debug('[SABnzbd] Adding multipart fields', { fields });
 			for (const [key, value] of Object.entries(fields)) {
-				parts.push(
-					Buffer.from(
-						`--${boundary}\r\n` + `Content-Disposition: form-data; name="${key}"\r\n\r\n` + `${value}\r\n`
-					)
-				);
+				const fieldData = `--${boundary}\r\n` + `Content-Disposition: form-data; name="${key}"\r\n\r\n` + `${value}\r\n`;
+				logger.debug(`[SABnzbd] Adding field: ${key} = ${value}`);
+				parts.push(Buffer.from(fieldData));
 			}
 		}
 

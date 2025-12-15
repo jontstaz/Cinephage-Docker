@@ -106,6 +106,18 @@ export class SABnzbdClient implements IDownloadClient {
 	async addDownload(options: AddDownloadOptions): Promise<string> {
 		const priority = mapPriorityToSabnzbd(options.priority);
 
+		// Log everything about the title to debug the issue
+		logger.error('[SABnzbd] TITLE DEBUG - addDownload called with', {
+			title: options.title,
+			titleType: typeof options.title,
+			titleIsNull: options.title === null,
+			titleIsUndefined: options.title === undefined,
+			titleLength: options.title?.length,
+			titleTrimmed: options.title?.trim(),
+			titleTrimmedLength: options.title?.trim()?.length,
+			allOptions: JSON.stringify(options, null, 2)
+		});
+
 		logger.info('[SABnzbd] Adding download', {
 			title: options.title,
 			category: options.category,
@@ -120,6 +132,17 @@ export class SABnzbdClient implements IDownloadClient {
 			// Check for NZB file content
 			const nzbContent = options.nzbFile || options.torrentFile;
 			if (nzbContent) {
+				// Debug the exact conditions
+				const titleCheck = {
+					hasTitle: !!options.title,
+					title: options.title,
+					titleTrimmed: options.title?.trim(),
+					titleTrimmedLength: options.title?.trim()?.length,
+					condition: options.title && options.title.trim().length > 0
+				};
+
+				logger.error('[SABnzbd] TITLE CHECK - Before creating safeTitle', titleCheck);
+
 				// Sanitize title for filename - remove special characters that might cause issues
 				// But be less aggressive with spacing to preserve the original title format
 				const safeTitle = options.title && options.title.trim().length > 0
@@ -127,14 +150,14 @@ export class SABnzbdClient implements IDownloadClient {
 					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
 
-				logger.info('[SABnzbd] NZB file details', {
+				logger.error('[SABnzbd] FINAL TITLE - After safeTitle creation', {
 					originalTitle: options.title,
 					safeTitle,
 					filename,
+					isUsingFallback: safeTitle.startsWith('SABnzbd_Grab_'),
 					category: options.category,
-					titleIsEmpty: !options.title,
-					titleLength: options.title?.length,
-					titleTrimmed: options.title?.trim()
+					nzbContentSize: nzbContent.length,
+					nzbContentPreview: nzbContent.toString('utf8', 0, 200)
 				});
 
 				response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);

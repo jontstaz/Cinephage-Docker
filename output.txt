@@ -1,0 +1,830 @@
+❯ docker-compose up
+[+] Running 2/2
+ ✔ Network cinephage-docker_default  Created                                                                                                                                             0.1s
+ ✔ Container cinephage               Created                                                                                                                                             0.0s
+Attaching to cinephage
+cinephage  |
+cinephage  | > cinephage@0.0.1 db:push
+cinephage  | > drizzle-kit push
+cinephage  |
+cinephage  | No config path provided, using default 'drizzle.config.ts'
+cinephage  | Reading config file '/app/drizzle.config.ts'
+cinephage  | [⣷] Pulling schema from database...
+[✓] Pulling schema from database...
+cinephage  |
+cinephage  |  Warning  You are about to execute current statements:
+cinephage  |
+cinephage  | CREATE TABLE `naming_settings` (
+cinephage  | 	`key` text PRIMARY KEY NOT NULL,
+cinephage  | 	`value` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | CREATE TABLE `__new_blocklist` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`info_hash` text,
+cinephage  | 	`indexer_id` text,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`series_id` text,
+cinephage  | 	`episode_ids` text,
+cinephage  | 	`reason` text NOT NULL,
+cinephage  | 	`message` text,
+cinephage  | 	`source_title` text,
+cinephage  | 	`quality` text,
+cinephage  | 	`size` integer,
+cinephage  | 	`protocol` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	`expires_at` text,
+cinephage  | 	FOREIGN KEY (`indexer_id`) REFERENCES `indexers`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_blocklist`("id", "title", "info_hash", "indexer_id", "movie_id", "series_id", "episode_ids", "reason", "message", "source_title", "quality", "size", "protocol", "created_at", "expires_at") SELECT "id", "title", "info_hash", "indexer_id", "movie_id", "series_id", "episode_ids", "reason", "message", "source_title", "quality", "size", "protocol", "created_at", "expires_at" FROM `blocklist`;
+cinephage  | DROP TABLE `blocklist`;
+cinephage  | ALTER TABLE `__new_blocklist` RENAME TO `blocklist`;
+cinephage  | CREATE INDEX `idx_blocklist_movie` ON `blocklist` (`movie_id`);
+cinephage  | CREATE INDEX `idx_blocklist_series` ON `blocklist` (`series_id`);
+cinephage  | CREATE INDEX `idx_blocklist_infohash` ON `blocklist` (`info_hash`);
+cinephage  | CREATE INDEX `idx_blocklist_movie` ON `blocklist` (`movie_id`);
+cinephage  | CREATE INDEX `idx_blocklist_series` ON `blocklist` (`series_id`);
+cinephage  | CREATE INDEX `idx_blocklist_infohash` ON `blocklist` (`info_hash`);
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_delay_profiles` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`sort_order` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`enabled` integer DEFAULT true,
+cinephage  | 	`usenet_delay` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`torrent_delay` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`quality_delays` text,
+cinephage  | 	`preferred_protocol` text,
+cinephage  | 	`tags` text,
+cinephage  | 	`bypass_if_highest_quality` integer DEFAULT true,
+cinephage  | 	`bypass_if_above_score` integer,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_delay_profiles`("id", "name", "sort_order", "enabled", "usenet_delay", "torrent_delay", "quality_delays", "preferred_protocol", "tags", "bypass_if_highest_quality", "bypass_if_above_score", "created_at", "updated_at") SELECT "id", "name", "sort_order", "enabled", "usenet_delay", "torrent_delay", "quality_delays", "preferred_protocol", "tags", "bypass_if_highest_quality", "bypass_if_above_score", "created_at", "updated_at" FROM `delay_profiles`;
+cinephage  | DROP TABLE `delay_profiles`;
+cinephage  | ALTER TABLE `__new_delay_profiles` RENAME TO `delay_profiles`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_download_clients` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`implementation` text NOT NULL,
+cinephage  | 	`enabled` integer DEFAULT true,
+cinephage  | 	`host` text NOT NULL,
+cinephage  | 	`port` integer NOT NULL,
+cinephage  | 	`use_ssl` integer DEFAULT false,
+cinephage  | 	`username` text,
+cinephage  | 	`password` text,
+cinephage  | 	`movie_category` text DEFAULT 'movies',
+cinephage  | 	`tv_category` text DEFAULT 'tv',
+cinephage  | 	`recent_priority` text DEFAULT 'normal',
+cinephage  | 	`older_priority` text DEFAULT 'normal',
+cinephage  | 	`initial_state` text DEFAULT 'start',
+cinephage  | 	`seed_ratio_limit` text,
+cinephage  | 	`seed_time_limit` integer,
+cinephage  | 	`download_path_local` text,
+cinephage  | 	`download_path_remote` text,
+cinephage  | 	`priority` integer DEFAULT 1,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_download_clients`("id", "name", "implementation", "enabled", "host", "port", "use_ssl", "username", "password", "movie_category", "tv_category", "recent_priority", "older_priority", "initial_state", "seed_ratio_limit", "seed_time_limit", "download_path_local", "download_path_remote", "priority", "created_at", "updated_at") SELECT "id", "name", "implementation", "enabled", "host", "port", "use_ssl", "username", "password", "movie_category", "tv_category", "recent_priority", "older_priority", "initial_state", "seed_ratio_limit", "seed_time_limit", "download_path_local", "download_path_remote", "priority", "created_at", "updated_at" FROM `download_clients`;
+cinephage  | DROP TABLE `download_clients`;
+cinephage  | ALTER TABLE `__new_download_clients` RENAME TO `download_clients`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE TABLE `__new_download_history` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`download_client_id` text,
+cinephage  | 	`download_client_name` text,
+cinephage  | 	`download_id` text,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`indexer_id` text,
+cinephage  | 	`indexer_name` text,
+cinephage  | 	`protocol` text,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`series_id` text,
+cinephage  | 	`episode_ids` text,
+cinephage  | 	`season_number` integer,
+cinephage  | 	`status` text NOT NULL,
+cinephage  | 	`status_reason` text,
+cinephage  | 	`size` integer,
+cinephage  | 	`download_time_seconds` integer,
+cinephage  | 	`final_ratio` text,
+cinephage  | 	`quality` text,
+cinephage  | 	`imported_path` text,
+cinephage  | 	`movie_file_id` text,
+cinephage  | 	`episode_file_ids` text,
+cinephage  | 	`grabbed_at` text,
+cinephage  | 	`completed_at` text,
+cinephage  | 	`imported_at` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`movie_file_id`) REFERENCES `movie_files`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_download_history`("id", "download_client_id", "download_client_name", "download_id", "title", "indexer_id", "indexer_name", "protocol", "movie_id", "series_id", "episode_ids", "season_number", "status", "status_reason", "size", "download_time_seconds", "final_ratio", "quality", "imported_path", "movie_file_id", "episode_file_ids", "grabbed_at", "completed_at", "imported_at", "created_at") SELECT "id", "download_client_id", "download_client_name", "download_id", "title", "indexer_id", "indexer_name", "protocol", "movie_id", "series_id", "episode_ids", "season_number", "status", "status_reason", "size", "download_time_seconds", "final_ratio", "quality", "imported_path", "movie_file_id", "episode_file_ids", "grabbed_at", "completed_at", "imported_at", "created_at" FROM `download_history`;
+cinephage  | DROP TABLE `download_history`;
+cinephage  | ALTER TABLE `__new_download_history` RENAME TO `download_history`;
+cinephage  | CREATE TABLE `__new_download_queue` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`download_client_id` text NOT NULL,
+cinephage  | 	`download_id` text NOT NULL,
+cinephage  | 	`info_hash` text,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`indexer_id` text,
+cinephage  | 	`indexer_name` text,
+cinephage  | 	`download_url` text,
+cinephage  | 	`magnet_url` text,
+cinephage  | 	`protocol` text DEFAULT 'torrent' NOT NULL,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`series_id` text,
+cinephage  | 	`episode_ids` text,
+cinephage  | 	`season_number` integer,
+cinephage  | 	`status` text DEFAULT 'queued' NOT NULL,
+cinephage  | 	`progress` text DEFAULT '0',
+cinephage  | 	`size` integer,
+cinephage  | 	`download_speed` integer DEFAULT 0,
+cinephage  | 	`upload_speed` integer DEFAULT 0,
+cinephage  | 	`eta` integer,
+cinephage  | 	`ratio` text DEFAULT '0',
+cinephage  | 	`client_download_path` text,
+cinephage  | 	`output_path` text,
+cinephage  | 	`imported_path` text,
+cinephage  | 	`quality` text,
+cinephage  | 	`added_at` text,
+cinephage  | 	`started_at` text,
+cinephage  | 	`completed_at` text,
+cinephage  | 	`imported_at` text,
+cinephage  | 	`error_message` text,
+cinephage  | 	`import_attempts` integer DEFAULT 0,
+cinephage  | 	`last_attempt_at` text,
+cinephage  | 	`is_automatic` integer DEFAULT false,
+cinephage  | 	`is_upgrade` integer DEFAULT false,
+cinephage  | 	FOREIGN KEY (`download_client_id`) REFERENCES `download_clients`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_download_queue`("id", "download_client_id", "download_id", "info_hash", "title", "indexer_id", "indexer_name", "download_url", "magnet_url", "protocol", "movie_id", "series_id", "episode_ids", "season_number", "status", "progress", "size", "download_speed", "upload_speed", "eta", "ratio", "client_download_path", "output_path", "imported_path", "quality", "added_at", "started_at", "completed_at", "imported_at", "error_message", "import_attempts", "last_attempt_at", "is_automatic", "is_upgrade") SELECT "id", "download_client_id", "download_id", "info_hash", "title", "indexer_id", "indexer_name", "download_url", "magnet_url", "protocol", "movie_id", "series_id", "episode_ids", "season_number", "status", "progress", "size", "download_speed", "upload_speed", "eta", "ratio", "client_download_path", "output_path", "imported_path", "quality", "added_at", "started_at", "completed_at", "imported_at", "error_message", "import_attempts", "last_attempt_at", "is_automatic", "is_upgrade" FROM `download_queue`;
+cinephage  | DROP TABLE `download_queue`;
+cinephage  | ALTER TABLE `__new_download_queue` RENAME TO `download_queue`;
+cinephage  | CREATE INDEX `idx_download_queue_status` ON `download_queue` (`status`);
+cinephage  | CREATE INDEX `idx_download_queue_movie` ON `download_queue` (`movie_id`);
+cinephage  | CREATE INDEX `idx_download_queue_series` ON `download_queue` (`series_id`);
+cinephage  | CREATE INDEX `idx_download_queue_status` ON `download_queue` (`status`);
+cinephage  | CREATE INDEX `idx_download_queue_movie` ON `download_queue` (`movie_id`);
+cinephage  | CREATE INDEX `idx_download_queue_series` ON `download_queue` (`series_id`);
+cinephage  | CREATE TABLE `__new_episode_files` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`series_id` text NOT NULL,
+cinephage  | 	`season_number` integer NOT NULL,
+cinephage  | 	`episode_ids` text,
+cinephage  | 	`relative_path` text NOT NULL,
+cinephage  | 	`size` integer,
+cinephage  | 	`date_added` text,
+cinephage  | 	`scene_name` text,
+cinephage  | 	`release_group` text,
+cinephage  | 	`release_type` text,
+cinephage  | 	`quality` text,
+cinephage  | 	`media_info` text,
+cinephage  | 	`languages` text,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_episode_files`("id", "series_id", "season_number", "episode_ids", "relative_path", "size", "date_added", "scene_name", "release_group", "release_type", "quality", "media_info", "languages") SELECT "id", "series_id", "season_number", "episode_ids", "relative_path", "size", "date_added", "scene_name", "release_group", "release_type", "quality", "media_info", "languages" FROM `episode_files`;
+cinephage  | DROP TABLE `episode_files`;
+cinephage  | ALTER TABLE `__new_episode_files` RENAME TO `episode_files`;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_episodes` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`series_id` text NOT NULL,
+cinephage  | 	`season_id` text,
+cinephage  | 	`tmdb_id` integer,
+cinephage  | 	`tvdb_id` integer,
+cinephage  | 	`season_number` integer NOT NULL,
+cinephage  | 	`episode_number` integer NOT NULL,
+cinephage  | 	`absolute_episode_number` integer,
+cinephage  | 	`title` text,
+cinephage  | 	`overview` text,
+cinephage  | 	`air_date` text,
+cinephage  | 	`runtime` integer,
+cinephage  | 	`monitored` integer DEFAULT true,
+cinephage  | 	`has_file` integer DEFAULT false,
+cinephage  | 	`wants_subtitles_override` integer,
+cinephage  | 	`last_search_time` text,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`season_id`) REFERENCES `seasons`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_episodes`("id", "series_id", "season_id", "tmdb_id", "tvdb_id", "season_number", "episode_number", "absolute_episode_number", "title", "overview", "air_date", "runtime", "monitored", "has_file", "wants_subtitles_override", "last_search_time") SELECT "id", "series_id", "season_id", "tmdb_id", "tvdb_id", "season_number", "episode_number", "absolute_episode_number", "title", "overview", "air_date", "runtime", "monitored", "has_file", "wants_subtitles_override", "last_search_time" FROM `episodes`;
+cinephage  | DROP TABLE `episodes`;
+cinephage  | ALTER TABLE `__new_episodes` RENAME TO `episodes`;
+cinephage  | CREATE INDEX `idx_episodes_series_season` ON `episodes` (`series_id`,`season_number`);
+cinephage  | CREATE INDEX `idx_episodes_monitored_hasfile` ON `episodes` (`monitored`,`has_file`);
+cinephage  | CREATE INDEX `idx_episodes_airdate` ON `episodes` (`air_date`);
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE INDEX `idx_episodes_series_season` ON `episodes` (`series_id`,`season_number`);
+cinephage  | CREATE INDEX `idx_episodes_monitored_hasfile` ON `episodes` (`monitored`,`has_file`);
+cinephage  | CREATE INDEX `idx_episodes_airdate` ON `episodes` (`air_date`);
+cinephage  | CREATE TABLE `__new_external_id_cache` (
+cinephage  | 	`tmdb_id` integer NOT NULL,
+cinephage  | 	`media_type` text NOT NULL,
+cinephage  | 	`imdb_id` text,
+cinephage  | 	`tvdb_id` integer,
+cinephage  | 	`cached_at` text,
+cinephage  | 	PRIMARY KEY(`tmdb_id`, `media_type`)
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_external_id_cache`("tmdb_id", "media_type", "imdb_id", "tvdb_id", "cached_at") SELECT "tmdb_id", "media_type", "imdb_id", "tvdb_id", "cached_at" FROM `external_id_cache`;
+cinephage  | DROP TABLE `external_id_cache`;
+cinephage  | ALTER TABLE `__new_external_id_cache` RENAME TO `external_id_cache`;
+cinephage  | CREATE TABLE `__new_language_profiles` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`languages` text NOT NULL,
+cinephage  | 	`cutoff_index` integer DEFAULT 0,
+cinephage  | 	`upgrades_allowed` integer DEFAULT true,
+cinephage  | 	`minimum_score` integer DEFAULT 60,
+cinephage  | 	`is_default` integer DEFAULT false,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_language_profiles`("id", "name", "languages", "cutoff_index", "upgrades_allowed", "minimum_score", "is_default", "created_at", "updated_at") SELECT "id", "name", "languages", "cutoff_index", "upgrades_allowed", "minimum_score", "is_default", "created_at", "updated_at" FROM `language_profiles`;
+cinephage  | DROP TABLE `language_profiles`;
+cinephage  | ALTER TABLE `__new_language_profiles` RENAME TO `language_profiles`;
+cinephage  | CREATE TABLE `__new_library_scan_history` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`scan_type` text NOT NULL,
+cinephage  | 	`root_folder_id` text,
+cinephage  | 	`status` text NOT NULL,
+cinephage  | 	`started_at` text,
+cinephage  | 	`completed_at` text,
+cinephage  | 	`files_scanned` integer DEFAULT 0,
+cinephage  | 	`files_added` integer DEFAULT 0,
+cinephage  | 	`files_updated` integer DEFAULT 0,
+cinephage  | 	`files_removed` integer DEFAULT 0,
+cinephage  | 	`unmatched_files` integer DEFAULT 0,
+cinephage  | 	`error_message` text,
+cinephage  | 	FOREIGN KEY (`root_folder_id`) REFERENCES `root_folders`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_library_scan_history`("id", "scan_type", "root_folder_id", "status", "started_at", "completed_at", "files_scanned", "files_added", "files_updated", "files_removed", "unmatched_files", "error_message") SELECT "id", "scan_type", "root_folder_id", "status", "started_at", "completed_at", "files_scanned", "files_added", "files_updated", "files_removed", "unmatched_files", "error_message" FROM `library_scan_history`;
+cinephage  | DROP TABLE `library_scan_history`;
+cinephage  | ALTER TABLE `__new_library_scan_history` RENAME TO `library_scan_history`;
+cinephage  | CREATE TABLE `__new_library_settings` (
+cinephage  | 	`key` text PRIMARY KEY NOT NULL,
+cinephage  | 	`value` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_library_settings`("key", "value") SELECT "key", "value" FROM `library_settings`;
+cinephage  | DROP TABLE `library_settings`;
+cinephage  | ALTER TABLE `__new_library_settings` RENAME TO `library_settings`;
+cinephage  | CREATE TABLE `__new_monitoring_history` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`task_history_id` text,
+cinephage  | 	`task_type` text NOT NULL,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`series_id` text,
+cinephage  | 	`season_number` integer,
+cinephage  | 	`episode_id` text,
+cinephage  | 	`status` text NOT NULL,
+cinephage  | 	`releases_found` integer DEFAULT 0,
+cinephage  | 	`release_grabbed` text,
+cinephage  | 	`queue_item_id` text,
+cinephage  | 	`is_upgrade` integer DEFAULT false,
+cinephage  | 	`old_score` integer,
+cinephage  | 	`new_score` integer,
+cinephage  | 	`executed_at` text,
+cinephage  | 	`error_message` text,
+cinephage  | 	FOREIGN KEY (`task_history_id`) REFERENCES `task_history`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`episode_id`) REFERENCES `episodes`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_monitoring_history`("id", "task_history_id", "task_type", "movie_id", "series_id", "season_number", "episode_id", "status", "releases_found", "release_grabbed", "queue_item_id", "is_upgrade", "old_score", "new_score", "executed_at", "error_message") SELECT "id", "task_history_id", "task_type", "movie_id", "series_id", "season_number", "episode_id", "status", "releases_found", "release_grabbed", "queue_item_id", "is_upgrade", "old_score", "new_score", "executed_at", "error_message" FROM `monitoring_history`;
+cinephage  | DROP TABLE `monitoring_history`;
+cinephage  | ALTER TABLE `__new_monitoring_history` RENAME TO `monitoring_history`;
+cinephage  | CREATE INDEX `idx_monitoring_history_task_history` ON `monitoring_history` (`task_history_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_movie` ON `monitoring_history` (`movie_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_series` ON `monitoring_history` (`series_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_episode` ON `monitoring_history` (`episode_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_task_history` ON `monitoring_history` (`task_history_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_movie` ON `monitoring_history` (`movie_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_series` ON `monitoring_history` (`series_id`);
+cinephage  | CREATE INDEX `idx_monitoring_history_episode` ON `monitoring_history` (`episode_id`);
+cinephage  | CREATE TABLE `__new_monitoring_settings` (
+cinephage  | 	`key` text PRIMARY KEY NOT NULL,
+cinephage  | 	`value` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_monitoring_settings`("key", "value") SELECT "key", "value" FROM `monitoring_settings`;
+cinephage  | DROP TABLE `monitoring_settings`;
+cinephage  | ALTER TABLE `__new_monitoring_settings` RENAME TO `monitoring_settings`;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_movie_files` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`movie_id` text NOT NULL,
+cinephage  | 	`relative_path` text NOT NULL,
+cinephage  | 	`size` integer,
+cinephage  | 	`date_added` text,
+cinephage  | 	`scene_name` text,
+cinephage  | 	`release_group` text,
+cinephage  | 	`quality` text,
+cinephage  | 	`media_info` text,
+cinephage  | 	`edition` text,
+cinephage  | 	`languages` text,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_movie_files`("id", "movie_id", "relative_path", "size", "date_added", "scene_name", "release_group", "quality", "media_info", "edition", "languages") SELECT "id", "movie_id", "relative_path", "size", "date_added", "scene_name", "release_group", "quality", "media_info", "edition", "languages" FROM `movie_files`;
+cinephage  | DROP TABLE `movie_files`;
+cinephage  | ALTER TABLE `__new_movie_files` RENAME TO `movie_files`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_movies` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`tmdb_id` integer NOT NULL,
+cinephage  | 	`imdb_id` text,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`original_title` text,
+cinephage  | 	`year` integer,
+cinephage  | 	`overview` text,
+cinephage  | 	`poster_path` text,
+cinephage  | 	`backdrop_path` text,
+cinephage  | 	`runtime` integer,
+cinephage  | 	`genres` text,
+cinephage  | 	`path` text NOT NULL,
+cinephage  | 	`root_folder_id` text,
+cinephage  | 	`quality_preset_id` text,
+cinephage  | 	`scoring_profile_id` text,
+cinephage  | 	`language_profile_id` text,
+cinephage  | 	`monitored` integer DEFAULT true,
+cinephage  | 	`minimum_availability` text DEFAULT 'released',
+cinephage  | 	`added` text,
+cinephage  | 	`has_file` integer DEFAULT false,
+cinephage  | 	`wants_subtitles` integer DEFAULT true,
+cinephage  | 	`last_search_time` text,
+cinephage  | 	FOREIGN KEY (`root_folder_id`) REFERENCES `root_folders`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`quality_preset_id`) REFERENCES `quality_presets`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`scoring_profile_id`) REFERENCES `scoring_profiles`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_movies`("id", "tmdb_id", "imdb_id", "title", "original_title", "year", "overview", "poster_path", "backdrop_path", "runtime", "genres", "path", "root_folder_id", "quality_preset_id", "scoring_profile_id", "language_profile_id", "monitored", "minimum_availability", "added", "has_file", "wants_subtitles", "last_search_time") SELECT "id", "tmdb_id", "imdb_id", "title", "original_title", "year", "overview", "poster_path", "backdrop_path", "runtime", "genres", "path", "root_folder_id", "quality_preset_id", "scoring_profile_id", "language_profile_id", "monitored", "minimum_availability", "added", "has_file", "wants_subtitles", "last_search_time" FROM `movies`;
+cinephage  | DROP TABLE `movies`;
+cinephage  | ALTER TABLE `__new_movies` RENAME TO `movies`;
+cinephage  | CREATE UNIQUE INDEX `movies_tmdb_id_unique` ON `movies` (`tmdb_id`);
+cinephage  | CREATE INDEX `idx_movies_monitored_hasfile` ON `movies` (`monitored`,`has_file`);
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE UNIQUE INDEX `movies_tmdb_id_unique` ON `movies` (`tmdb_id`);
+cinephage  | CREATE INDEX `idx_movies_monitored_hasfile` ON `movies` (`monitored`,`has_file`);
+cinephage  | CREATE TABLE `__new_pending_releases` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`info_hash` text,
+cinephage  | 	`indexer_id` text,
+cinephage  | 	`download_url` text,
+cinephage  | 	`magnet_url` text,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`series_id` text,
+cinephage  | 	`episode_ids` text,
+cinephage  | 	`score` integer NOT NULL,
+cinephage  | 	`size` integer,
+cinephage  | 	`protocol` text NOT NULL,
+cinephage  | 	`quality` text,
+cinephage  | 	`delay_profile_id` text,
+cinephage  | 	`added_at` text,
+cinephage  | 	`process_at` text NOT NULL,
+cinephage  | 	`status` text DEFAULT 'pending' NOT NULL,
+cinephage  | 	`superseded_by` text,
+cinephage  | 	FOREIGN KEY (`indexer_id`) REFERENCES `indexers`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`delay_profile_id`) REFERENCES `delay_profiles`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_pending_releases`("id", "title", "info_hash", "indexer_id", "download_url", "magnet_url", "movie_id", "series_id", "episode_ids", "score", "size", "protocol", "quality", "delay_profile_id", "added_at", "process_at", "status", "superseded_by") SELECT "id", "title", "info_hash", "indexer_id", "download_url", "magnet_url", "movie_id", "series_id", "episode_ids", "score", "size", "protocol", "quality", "delay_profile_id", "added_at", "process_at", "status", "superseded_by" FROM `pending_releases`;
+cinephage  | DROP TABLE `pending_releases`;
+cinephage  | ALTER TABLE `__new_pending_releases` RENAME TO `pending_releases`;
+cinephage  | CREATE TABLE `__new_quality_definitions` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`resolution` text NOT NULL,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`weight` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`min_size_mb_per_minute` text,
+cinephage  | 	`max_size_mb_per_minute` text,
+cinephage  | 	`preferred_size_mb_per_minute` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_quality_definitions`("id", "resolution", "title", "weight", "min_size_mb_per_minute", "max_size_mb_per_minute", "preferred_size_mb_per_minute", "created_at", "updated_at") SELECT "id", "resolution", "title", "weight", "min_size_mb_per_minute", "max_size_mb_per_minute", "preferred_size_mb_per_minute", "created_at", "updated_at" FROM `quality_definitions`;
+cinephage  | DROP TABLE `quality_definitions`;
+cinephage  | ALTER TABLE `__new_quality_definitions` RENAME TO `quality_definitions`;
+cinephage  | CREATE UNIQUE INDEX `quality_definitions_resolution_unique` ON `quality_definitions` (`resolution`);
+cinephage  | CREATE UNIQUE INDEX `quality_definitions_resolution_unique` ON `quality_definitions` (`resolution`);
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_quality_presets` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`min_resolution` text,
+cinephage  | 	`preferred_resolution` text,
+cinephage  | 	`max_resolution` text,
+cinephage  | 	`allowed_sources` text,
+cinephage  | 	`excluded_sources` text,
+cinephage  | 	`prefer_hdr` integer DEFAULT false,
+cinephage  | 	`is_default` integer DEFAULT false,
+cinephage  | 	`min_size_mb` integer,
+cinephage  | 	`max_size_mb` integer,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_quality_presets`("id", "name", "min_resolution", "preferred_resolution", "max_resolution", "allowed_sources", "excluded_sources", "prefer_hdr", "is_default", "min_size_mb", "max_size_mb", "created_at", "updated_at") SELECT "id", "name", "min_resolution", "preferred_resolution", "max_resolution", "allowed_sources", "excluded_sources", "prefer_hdr", "is_default", "min_size_mb", "max_size_mb", "created_at", "updated_at" FROM `quality_presets`;
+cinephage  | DROP TABLE `quality_presets`;
+cinephage  | ALTER TABLE `__new_quality_presets` RENAME TO `quality_presets`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_root_folders` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`path` text NOT NULL,
+cinephage  | 	`media_type` text NOT NULL,
+cinephage  | 	`is_default` integer DEFAULT false,
+cinephage  | 	`free_space_bytes` integer,
+cinephage  | 	`last_checked_at` text,
+cinephage  | 	`created_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_root_folders`("id", "name", "path", "media_type", "is_default", "free_space_bytes", "last_checked_at", "created_at") SELECT "id", "name", "path", "media_type", "is_default", "free_space_bytes", "last_checked_at", "created_at" FROM `root_folders`;
+cinephage  | DROP TABLE `root_folders`;
+cinephage  | ALTER TABLE `__new_root_folders` RENAME TO `root_folders`;
+cinephage  | CREATE UNIQUE INDEX `root_folders_path_unique` ON `root_folders` (`path`);
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE UNIQUE INDEX `root_folders_path_unique` ON `root_folders` (`path`);
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_scoring_profiles` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`description` text,
+cinephage  | 	`base_profile_id` text,
+cinephage  | 	`tags` text,
+cinephage  | 	`upgrades_allowed` integer DEFAULT true,
+cinephage  | 	`min_score` integer DEFAULT 0,
+cinephage  | 	`upgrade_until_score` integer DEFAULT -1,
+cinephage  | 	`min_score_increment` integer DEFAULT 0,
+cinephage  | 	`resolution_order` text,
+cinephage  | 	`format_scores` text,
+cinephage  | 	`allowed_protocols` text,
+cinephage  | 	`is_default` integer DEFAULT false,
+cinephage  | 	`movie_min_size_gb` text,
+cinephage  | 	`movie_max_size_gb` text,
+cinephage  | 	`episode_min_size_mb` text,
+cinephage  | 	`episode_max_size_mb` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_scoring_profiles`("id", "name", "description", "base_profile_id", "tags", "upgrades_allowed", "min_score", "upgrade_until_score", "min_score_increment", "resolution_order", "format_scores", "allowed_protocols", "is_default", "movie_min_size_gb", "movie_max_size_gb", "episode_min_size_mb", "episode_max_size_mb", "created_at", "updated_at") SELECT "id", "name", "description", "base_profile_id", "tags", "upgrades_allowed", "min_score", "upgrade_until_score", "min_score_increment", "resolution_order", "format_scores", "allowed_protocols", "is_default", "movie_min_size_gb", "movie_max_size_gb", "episode_min_size_mb", "episode_max_size_mb", "created_at", "updated_at" FROM `scoring_profiles`;
+cinephage  | DROP TABLE `scoring_profiles`;
+cinephage  | ALTER TABLE `__new_scoring_profiles` RENAME TO `scoring_profiles`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_seasons` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`series_id` text NOT NULL,
+cinephage  | 	`season_number` integer NOT NULL,
+cinephage  | 	`monitored` integer DEFAULT true,
+cinephage  | 	`name` text,
+cinephage  | 	`overview` text,
+cinephage  | 	`poster_path` text,
+cinephage  | 	`air_date` text,
+cinephage  | 	`episode_count` integer DEFAULT 0,
+cinephage  | 	`episode_file_count` integer DEFAULT 0,
+cinephage  | 	FOREIGN KEY (`series_id`) REFERENCES `series`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_seasons`("id", "series_id", "season_number", "monitored", "name", "overview", "poster_path", "air_date", "episode_count", "episode_file_count") SELECT "id", "series_id", "season_number", "monitored", "name", "overview", "poster_path", "air_date", "episode_count", "episode_file_count" FROM `seasons`;
+cinephage  | DROP TABLE `seasons`;
+cinephage  | ALTER TABLE `__new_seasons` RENAME TO `seasons`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_series` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`tmdb_id` integer NOT NULL,
+cinephage  | 	`tvdb_id` integer,
+cinephage  | 	`imdb_id` text,
+cinephage  | 	`title` text NOT NULL,
+cinephage  | 	`original_title` text,
+cinephage  | 	`year` integer,
+cinephage  | 	`overview` text,
+cinephage  | 	`poster_path` text,
+cinephage  | 	`backdrop_path` text,
+cinephage  | 	`status` text,
+cinephage  | 	`network` text,
+cinephage  | 	`genres` text,
+cinephage  | 	`path` text NOT NULL,
+cinephage  | 	`root_folder_id` text,
+cinephage  | 	`quality_preset_id` text,
+cinephage  | 	`scoring_profile_id` text,
+cinephage  | 	`language_profile_id` text,
+cinephage  | 	`monitored` integer DEFAULT true,
+cinephage  | 	`monitor_new_items` text DEFAULT 'all',
+cinephage  | 	`monitor_specials` integer DEFAULT false,
+cinephage  | 	`season_folder` integer DEFAULT true,
+cinephage  | 	`series_type` text DEFAULT 'standard',
+cinephage  | 	`added` text,
+cinephage  | 	`episode_count` integer DEFAULT 0,
+cinephage  | 	`episode_file_count` integer DEFAULT 0,
+cinephage  | 	`wants_subtitles` integer DEFAULT true,
+cinephage  | 	FOREIGN KEY (`root_folder_id`) REFERENCES `root_folders`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`quality_preset_id`) REFERENCES `quality_presets`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`scoring_profile_id`) REFERENCES `scoring_profiles`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_series`("id", "tmdb_id", "tvdb_id", "imdb_id", "title", "original_title", "year", "overview", "poster_path", "backdrop_path", "status", "network", "genres", "path", "root_folder_id", "quality_preset_id", "scoring_profile_id", "language_profile_id", "monitored", "monitor_new_items", "monitor_specials", "season_folder", "series_type", "added", "episode_count", "episode_file_count", "wants_subtitles") SELECT "id", "tmdb_id", "tvdb_id", "imdb_id", "title", "original_title", "year", "overview", "poster_path", "backdrop_path", "status", "network", "genres", "path", "root_folder_id", "quality_preset_id", "scoring_profile_id", "language_profile_id", "monitored", "monitor_new_items", "monitor_specials", "season_folder", "series_type", "added", "episode_count", "episode_file_count", "wants_subtitles" FROM `series`;
+cinephage  | DROP TABLE `series`;
+cinephage  | ALTER TABLE `__new_series` RENAME TO `series`;
+cinephage  | CREATE UNIQUE INDEX `series_tmdb_id_unique` ON `series` (`tmdb_id`);
+cinephage  | CREATE INDEX `idx_series_monitored` ON `series` (`monitored`);
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE UNIQUE INDEX `series_tmdb_id_unique` ON `series` (`tmdb_id`);
+cinephage  | CREATE INDEX `idx_series_monitored` ON `series` (`monitored`);
+cinephage  | CREATE TABLE `__new_settings` (
+cinephage  | 	`key` text PRIMARY KEY NOT NULL,
+cinephage  | 	`value` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_settings`("key", "value") SELECT "key", "value" FROM `settings`;
+cinephage  | DROP TABLE `settings`;
+cinephage  | ALTER TABLE `__new_settings` RENAME TO `settings`;
+cinephage  | CREATE TABLE `__new_subtitle_blacklist` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`episode_id` text,
+cinephage  | 	`provider_id` text,
+cinephage  | 	`provider_subtitle_id` text NOT NULL,
+cinephage  | 	`reason` text,
+cinephage  | 	`language` text NOT NULL,
+cinephage  | 	`created_at` text,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`episode_id`) REFERENCES `episodes`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`provider_id`) REFERENCES `subtitle_providers`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_subtitle_blacklist`("id", "movie_id", "episode_id", "provider_id", "provider_subtitle_id", "reason", "language", "created_at") SELECT "id", "movie_id", "episode_id", "provider_id", "provider_subtitle_id", "reason", "language", "created_at" FROM `subtitle_blacklist`;
+cinephage  | DROP TABLE `subtitle_blacklist`;
+cinephage  | ALTER TABLE `__new_subtitle_blacklist` RENAME TO `subtitle_blacklist`;
+cinephage  | CREATE TABLE `__new_subtitle_history` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`episode_id` text,
+cinephage  | 	`action` text NOT NULL,
+cinephage  | 	`language` text NOT NULL,
+cinephage  | 	`provider_id` text,
+cinephage  | 	`provider_name` text,
+cinephage  | 	`provider_subtitle_id` text,
+cinephage  | 	`match_score` integer,
+cinephage  | 	`was_hash_match` integer DEFAULT false,
+cinephage  | 	`replaced_subtitle_id` text,
+cinephage  | 	`error_message` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE set null,
+cinephage  | 	FOREIGN KEY (`episode_id`) REFERENCES `episodes`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_subtitle_history`("id", "movie_id", "episode_id", "action", "language", "provider_id", "provider_name", "provider_subtitle_id", "match_score", "was_hash_match", "replaced_subtitle_id", "error_message", "created_at") SELECT "id", "movie_id", "episode_id", "action", "language", "provider_id", "provider_name", "provider_subtitle_id", "match_score", "was_hash_match", "replaced_subtitle_id", "error_message", "created_at" FROM `subtitle_history`;
+cinephage  | DROP TABLE `subtitle_history`;
+cinephage  | ALTER TABLE `__new_subtitle_history` RENAME TO `subtitle_history`;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_subtitle_providers` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`implementation` text NOT NULL,
+cinephage  | 	`enabled` integer DEFAULT true,
+cinephage  | 	`priority` integer DEFAULT 25,
+cinephage  | 	`api_key` text,
+cinephage  | 	`username` text,
+cinephage  | 	`password` text,
+cinephage  | 	`settings` text,
+cinephage  | 	`requests_per_minute` integer DEFAULT 60,
+cinephage  | 	`last_error` text,
+cinephage  | 	`last_error_at` text,
+cinephage  | 	`consecutive_failures` integer DEFAULT 0,
+cinephage  | 	`throttled_until` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_subtitle_providers`("id", "name", "implementation", "enabled", "priority", "api_key", "username", "password", "settings", "requests_per_minute", "last_error", "last_error_at", "consecutive_failures", "throttled_until", "created_at", "updated_at") SELECT "id", "name", "implementation", "enabled", "priority", "api_key", "username", "password", "settings", "requests_per_minute", "last_error", "last_error_at", "consecutive_failures", "throttled_until", "created_at", "updated_at" FROM `subtitle_providers`;
+cinephage  | DROP TABLE `subtitle_providers`;
+cinephage  | ALTER TABLE `__new_subtitle_providers` RENAME TO `subtitle_providers`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE TABLE `__new_subtitle_settings` (
+cinephage  | 	`key` text PRIMARY KEY NOT NULL,
+cinephage  | 	`value` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_subtitle_settings`("key", "value") SELECT "key", "value" FROM `subtitle_settings`;
+cinephage  | DROP TABLE `subtitle_settings`;
+cinephage  | ALTER TABLE `__new_subtitle_settings` RENAME TO `subtitle_settings`;
+cinephage  | CREATE TABLE `__new_subtitles` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`movie_id` text,
+cinephage  | 	`episode_id` text,
+cinephage  | 	`relative_path` text NOT NULL,
+cinephage  | 	`language` text NOT NULL,
+cinephage  | 	`is_forced` integer DEFAULT false,
+cinephage  | 	`is_hearing_impaired` integer DEFAULT false,
+cinephage  | 	`format` text NOT NULL,
+cinephage  | 	`provider_id` text,
+cinephage  | 	`provider_subtitle_id` text,
+cinephage  | 	`match_score` integer,
+cinephage  | 	`is_hash_match` integer DEFAULT false,
+cinephage  | 	`size` integer,
+cinephage  | 	`sync_offset` integer DEFAULT 0,
+cinephage  | 	`was_synced` integer DEFAULT false,
+cinephage  | 	`date_added` text,
+cinephage  | 	FOREIGN KEY (`movie_id`) REFERENCES `movies`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`episode_id`) REFERENCES `episodes`(`id`) ON UPDATE no action ON DELETE cascade,
+cinephage  | 	FOREIGN KEY (`provider_id`) REFERENCES `subtitle_providers`(`id`) ON UPDATE no action ON DELETE set null
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_subtitles`("id", "movie_id", "episode_id", "relative_path", "language", "is_forced", "is_hearing_impaired", "format", "provider_id", "provider_subtitle_id", "match_score", "is_hash_match", "size", "sync_offset", "was_synced", "date_added") SELECT "id", "movie_id", "episode_id", "relative_path", "language", "is_forced", "is_hearing_impaired", "format", "provider_id", "provider_subtitle_id", "match_score", "is_hash_match", "size", "sync_offset", "was_synced", "date_added" FROM `subtitles`;
+cinephage  | DROP TABLE `subtitles`;
+cinephage  | ALTER TABLE `__new_subtitles` RENAME TO `subtitles`;
+cinephage  | CREATE INDEX `idx_subtitles_movie` ON `subtitles` (`movie_id`);
+cinephage  | CREATE INDEX `idx_subtitles_episode` ON `subtitles` (`episode_id`);
+cinephage  | CREATE INDEX `idx_subtitles_movie` ON `subtitles` (`movie_id`);
+cinephage  | CREATE INDEX `idx_subtitles_episode` ON `subtitles` (`episode_id`);
+cinephage  | CREATE TABLE `__new_unmatched_files` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`path` text NOT NULL,
+cinephage  | 	`root_folder_id` text,
+cinephage  | 	`media_type` text NOT NULL,
+cinephage  | 	`size` integer,
+cinephage  | 	`parsed_title` text,
+cinephage  | 	`parsed_year` integer,
+cinephage  | 	`parsed_season` integer,
+cinephage  | 	`parsed_episode` integer,
+cinephage  | 	`suggested_matches` text,
+cinephage  | 	`reason` text,
+cinephage  | 	`discovered_at` text,
+cinephage  | 	FOREIGN KEY (`root_folder_id`) REFERENCES `root_folders`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_unmatched_files`("id", "path", "root_folder_id", "media_type", "size", "parsed_title", "parsed_year", "parsed_season", "parsed_episode", "suggested_matches", "reason", "discovered_at") SELECT "id", "path", "root_folder_id", "media_type", "size", "parsed_title", "parsed_year", "parsed_season", "parsed_episode", "suggested_matches", "reason", "discovered_at" FROM `unmatched_files`;
+cinephage  | DROP TABLE `unmatched_files`;
+cinephage  | ALTER TABLE `__new_unmatched_files` RENAME TO `unmatched_files`;
+cinephage  | CREATE UNIQUE INDEX `unmatched_files_path_unique` ON `unmatched_files` (`path`);
+cinephage  | CREATE UNIQUE INDEX `unmatched_files_path_unique` ON `unmatched_files` (`path`);
+cinephage  | CREATE TABLE `__new_user` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`age` integer
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_user`("id", "age") SELECT "id", "age" FROM `user`;
+cinephage  | DROP TABLE `user`;
+cinephage  | ALTER TABLE `__new_user` RENAME TO `user`;
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_task_history` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`task_id` text NOT NULL,
+cinephage  | 	`status` text NOT NULL,
+cinephage  | 	`results` text,
+cinephage  | 	`errors` text,
+cinephage  | 	`started_at` text,
+cinephage  | 	`completed_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_task_history`("id", "task_id", "status", "results", "errors", "started_at", "completed_at") SELECT "id", "task_id", "status", "results", "errors", "started_at", "completed_at" FROM `task_history`;
+cinephage  | DROP TABLE `task_history`;
+cinephage  | ALTER TABLE `__new_task_history` RENAME TO `task_history`;
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE TABLE `__new_indexer_definitions` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`description` text,
+cinephage  | 	`protocol` text NOT NULL,
+cinephage  | 	`type` text NOT NULL,
+cinephage  | 	`language` text DEFAULT 'en-US',
+cinephage  | 	`urls` text NOT NULL,
+cinephage  | 	`legacy_urls` text,
+cinephage  | 	`settings_schema` text,
+cinephage  | 	`capabilities` text NOT NULL,
+cinephage  | 	`file_path` text,
+cinephage  | 	`file_hash` text,
+cinephage  | 	`loaded_at` text NOT NULL,
+cinephage  | 	`updated_at` text NOT NULL
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_indexer_definitions`("id", "name", "description", "protocol", "type", "language", "urls", "legacy_urls", "settings_schema", "capabilities", "file_path", "file_hash", "loaded_at", "updated_at") SELECT "id", "name", "description", "protocol", "type", "language", "urls", "legacy_urls", "settings_schema", "capabilities", "file_path", "file_hash", "loaded_at", "updated_at" FROM `indexer_definitions`;
+cinephage  | DROP TABLE `indexer_definitions`;
+cinephage  | ALTER TABLE `__new_indexer_definitions` RENAME TO `indexer_definitions`;
+cinephage  | CREATE INDEX `idx_indexer_definitions_protocol` ON `indexer_definitions` (`protocol`);
+cinephage  | CREATE INDEX `idx_indexer_definitions_type` ON `indexer_definitions` (`type`);
+cinephage  | CREATE INDEX `idx_indexer_definitions_protocol` ON `indexer_definitions` (`protocol`);
+cinephage  | CREATE INDEX `idx_indexer_definitions_type` ON `indexer_definitions` (`type`);
+cinephage  | PRAGMA foreign_keys=OFF;
+cinephage  | CREATE TABLE `__new_indexers` (
+cinephage  | 	`id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`name` text NOT NULL,
+cinephage  | 	`definition_id` text NOT NULL,
+cinephage  | 	`enabled` integer DEFAULT true,
+cinephage  | 	`base_url` text NOT NULL,
+cinephage  | 	`alternate_urls` text,
+cinephage  | 	`priority` integer DEFAULT 25,
+cinephage  | 	`enable_automatic_search` integer DEFAULT true,
+cinephage  | 	`enable_interactive_search` integer DEFAULT true,
+cinephage  | 	`settings` text,
+cinephage  | 	`protocol_settings` text,
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_indexers`("id", "name", "definition_id", "enabled", "base_url", "alternate_urls", "priority", "enable_automatic_search", "enable_interactive_search", "settings", "protocol_settings", "created_at", "updated_at") SELECT "id", "name", "definition_id", "enabled", "base_url", "alternate_urls", "priority", "enable_automatic_search", "enable_interactive_search", "settings", "protocol_settings", "created_at", "updated_at" FROM `indexers`;
+cinephage  | DROP TABLE `indexers`;
+cinephage  | ALTER TABLE `__new_indexers` RENAME TO `indexers`;
+cinephage  | CREATE INDEX `idx_indexers_definition` ON `indexers` (`definition_id`);
+cinephage  | CREATE INDEX `idx_indexers_enabled` ON `indexers` (`enabled`);
+cinephage  | PRAGMA foreign_keys=ON;
+cinephage  | CREATE INDEX `idx_indexers_definition` ON `indexers` (`definition_id`);
+cinephage  | CREATE INDEX `idx_indexers_enabled` ON `indexers` (`enabled`);
+cinephage  | CREATE TABLE `__new_indexer_status` (
+cinephage  | 	`indexer_id` text PRIMARY KEY NOT NULL,
+cinephage  | 	`health` text DEFAULT 'healthy' NOT NULL,
+cinephage  | 	`consecutive_failures` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`total_requests` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`total_failures` integer DEFAULT 0 NOT NULL,
+cinephage  | 	`is_disabled` integer DEFAULT false NOT NULL,
+cinephage  | 	`disabled_at` text,
+cinephage  | 	`disabled_until` text,
+cinephage  | 	`last_success` text,
+cinephage  | 	`last_failure` text,
+cinephage  | 	`last_error_message` text,
+cinephage  | 	`avg_response_time` integer,
+cinephage  | 	`recent_failures` text DEFAULT '[]',
+cinephage  | 	`created_at` text,
+cinephage  | 	`updated_at` text,
+cinephage  | 	FOREIGN KEY (`indexer_id`) REFERENCES `indexers`(`id`) ON UPDATE no action ON DELETE cascade
+cinephage  | );
+cinephage  |
+cinephage  | INSERT INTO `__new_indexer_status`("indexer_id", "health", "consecutive_failures", "total_requests", "total_failures", "is_disabled", "disabled_at", "disabled_until", "last_success", "last_failure", "last_error_message", "avg_response_time", "recent_failures", "created_at", "updated_at") SELECT "indexer_id", "health", "consecutive_failures", "total_requests", "total_failures", "is_disabled", "disabled_at", "disabled_until", "last_success", "last_failure", "last_error_message", "avg_response_time", "recent_failures", "created_at", "updated_at" FROM `indexer_status`;
+cinephage  | DROP TABLE `indexer_status`;
+cinephage  | ALTER TABLE `__new_indexer_status` RENAME TO `indexer_status`;
+cinephage  | CREATE INDEX `idx_indexer_status_health` ON `indexer_status` (`health`,`is_disabled`);
+cinephage  | CREATE INDEX `idx_indexer_status_health` ON `indexer_status` (`health`,`is_disabled`);
+cinephage  |
+cinephage  | ❯ No, abort
+cinephage  | npm notice
+cinephage  | npm notice New major version of npm available! 10.9.4 -> 11.7.0
+cinephage  | npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.7.0
+cinephage  | npm notice To update run: npm install -g npm@11.7.0
+cinephage  | npm notice
+cinephage  |   Yes, I want to execute all statementsListening on http://0.0.0.0:3000
+cinephage  | {"timestamp":"2025-12-14T11:45:07.055Z","level":"info","message":"Database initialization complete"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.057Z","level":"info","message":"Starting download monitor service"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.057Z","level":"info","message":"Performing startup sync to check for orphaned downloads"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.060Z","level":"info","message":"[LibraryScheduler] Initializing..."}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.062Z","level":"info","message":"[LibraryScheduler] Setting up periodic scans","intervalHours":12}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.062Z","level":"info","message":"Starting import service"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.062Z","level":"info","message":"Download monitor and import services started"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.063Z","level":"info","message":"[LibraryWatcher] Initialized watchers","folderCount":0}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.064Z","level":"info","message":"[LibraryScheduler] Starting startup scan..."}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.065Z","level":"info","message":"[LibraryScheduler] Initialized"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.065Z","level":"info","message":"Library scheduler initialized"}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.065Z","level":"info","message":"[LibraryScheduler] Processing unmatched files..."}
+cinephage  | {"timestamp":"2025-12-14T11:45:07.142Z","level":"info","message":"ffprobe available: 8.0.1"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.062Z","level":"info","message":"[MonitoringScheduler] Initializing..."}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.062Z","level":"info","message":"[ExternalIdService] Starting...","config":{"intervalHours":6,"batchSize":50,"apiDelayMs":250,"runOnStartup":true}}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.062Z","level":"info","message":"External ID service started"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task missing configured","taskType":"missing","intervalHours":24,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task upgrade configured","taskType":"upgrade","intervalHours":168,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task newEpisode configured","taskType":"newEpisode","intervalHours":1,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task cutoffUnmet configured","taskType":"cutoffUnmet","intervalHours":24,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task pendingRelease configured","taskType":"pendingRelease","intervalHours":0.25,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task missingSubtitles configured","taskType":"missingSubtitles","intervalHours":6,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Task subtitleUpgrade configured","taskType":"subtitleUpgrade","intervalHours":24,"lastRunTime":"never"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.064Z","level":"info","message":"[MonitoringScheduler] Initialized - tasks will start after 5 minute grace period"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.065Z","level":"info","message":"Monitoring scheduler initialized (tasks deferred by grace period)"}
+cinephage  | {"timestamp":"2025-12-14T11:45:12.065Z","level":"info","message":"[ExternalIdService] Ready. Interval: 6h"}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.058Z","level":"info","message":"Initializing BrowserSolver","module":"BrowserSolver","poolSize":2,"maxConcurrent":3,"headless":true}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.058Z","level":"info","message":"Initializing browser pool","module":"BrowserPool","poolSize":2,"headless":true}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.065Z","level":"error","message":"Failed to create browser instance","module":"BrowserPool","id":"faba2b05-9c73-4f84-8f7d-7822bec979a4","error":{"message":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝","name":"Error","stack":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝\n    at BrowserPool.createInstance (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:160:38)\n    at BrowserPool.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:141:34)\n    at BrowserSolver.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:930:23)\n    at initializeBrowserSolver (/app/build/server/chunks/hooks.server-CWbZJGOV.js:440:25)\n    at Timeout._onTimeout (/app/build/server/chunks/hooks.server-CWbZJGOV.js:459:7)"}}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.065Z","level":"error","message":"Failed to initialize browser pool","module":"BrowserPool","error":{"message":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝","name":"Error","stack":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝\n    at BrowserPool.createInstance (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:160:38)\n    at BrowserPool.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:141:34)\n    at BrowserSolver.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:930:23)\n    at initializeBrowserSolver (/app/build/server/chunks/hooks.server-CWbZJGOV.js:440:25)\n    at Timeout._onTimeout (/app/build/server/chunks/hooks.server-CWbZJGOV.js:459:7)"}}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.065Z","level":"error","message":"Failed to initialize BrowserSolver","module":"BrowserSolver","error":{"message":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝","name":"Error","stack":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝\n    at BrowserPool.createInstance (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:160:38)\n    at BrowserPool.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:141:34)\n    at BrowserSolver.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:930:23)\n    at initializeBrowserSolver (/app/build/server/chunks/hooks.server-CWbZJGOV.js:440:25)\n    at Timeout._onTimeout (/app/build/server/chunks/hooks.server-CWbZJGOV.js:459:7)"}}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.065Z","level":"error","message":"Failed to initialize BrowserSolver (Cloudflare bypass disabled)","error":{"message":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝","name":"Error","stack":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝\n    at BrowserPool.createInstance (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:160:38)\n    at BrowserPool.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:141:34)\n    at BrowserSolver.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:930:23)\n    at initializeBrowserSolver (/app/build/server/chunks/hooks.server-CWbZJGOV.js:440:25)\n    at Timeout._onTimeout (/app/build/server/chunks/hooks.server-CWbZJGOV.js:459:7)"}}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.066Z","level":"info","message":"[ExternalIdService] Starting refresh run..."}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.067Z","level":"info","message":"[ExternalIdService] Refresh complete","moviesProcessed":0,"moviesUpdated":0,"seriesProcessed":0,"seriesUpdated":0,"errors":0,"durationMs":1}
+cinephage  | {"timestamp":"2025-12-14T11:45:17.068Z","level":"error","message":"Failed to create browser instance","module":"BrowserPool","id":"6bc4a99f-64a0-4973-90db-333e5429446d","error":{"message":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝","name":"Error","stack":"browserType.launch: Executable doesn't exist at /home/node/.cache/ms-playwright/chromium_headless_shell-1200/chrome-headless-shell-linux64/chrome-headless-shell\n╔═════════════════════════════════════════════════════════════════════════╗\n║ Looks like Playwright Test or Playwright was just installed or updated. ║\n║ Please run the following command to download new browsers:              ║\n║                                                                         ║\n║     npx playwright install                                              ║\n║                                                                         ║\n║ <3 Playwright Team                                                      ║\n╚═════════════════════════════════════════════════════════════════════════╝\n    at BrowserPool.createInstance (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:160:38)\n    at BrowserPool.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:141:34)\n    at BrowserSolver.initialize (/app/build/server/chunks/BrowserSolver-B01r1Y4_.js:930:23)\n    at initializeBrowserSolver (/app/build/server/chunks/hooks.server-CWbZJGOV.js:440:25)\n    at Timeout._onTimeout (/app/build/server/chunks/hooks.server-CWbZJGOV.js:459:7)"}}
+cinephage  | {"timestamp":"2025-12-14T11:45:18.462Z","level":"error","message":"Uncaught exception","correlationId":"b603192b-94fa-4965-a21d-c48d708928ae","method":"GET","path":"/settings/naming","error":{"message":"no such table: naming_settings","name":"SqliteError","stack":"SqliteError: no such table: naming_settings\n    at Database.prepare (/app/node_modules/better-sqlite3/lib/methods/wrappers.js:5:21)\n    at BetterSQLiteSession.prepareQuery (file:///app/build/server/chunks/index6-DwCfEPil.js:4701:30)\n    at BetterSQLiteSession.prepareOneTimeQuery (file:///app/build/server/chunks/index6-DwCfEPil.js:4629:17)\n    at SQLiteSelectBase._prepare (file:///app/build/server/chunks/index6-DwCfEPil.js:3494:88)\n    at SQLiteSelectBase.all (file:///app/build/server/chunks/index6-DwCfEPil.js:3520:17)\n    at NamingSettingsService.getConfig (file:///app/build/server/chunks/NamingSettingsService-vPI5Tbr3.js:527:55)\n    at load (file:///app/build/server/chunks/19-BadZDX3Y.js:59:46)\n    at file:///app/build/server/index.js:3795:20\n    at AsyncLocalStorage.run (node:internal/async_local_storage/async_hooks:91:14)\n    at with_request_store (file:///app/build/server/chunks/event-ByDKS2H7.js:35:20)"}}
+

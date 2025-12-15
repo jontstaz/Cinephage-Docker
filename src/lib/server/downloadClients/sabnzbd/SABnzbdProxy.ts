@@ -133,9 +133,6 @@ export class SABnzbdProxy {
 				filename,
 				data: nzbData,
 				contentType: 'application/x-nzb'
-			},
-			{
-				nzbname: filename
 			}
 		);
 

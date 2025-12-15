@@ -111,8 +111,7 @@ export class SABnzbdClient implements IDownloadClient {
 			category: options.category,
 			priority,
 			hasNzbFile: !!(options.nzbFile || options.torrentFile),
-			hasUrl: !!options.downloadUrl,
-			optionsKeys: Object.keys(options)
+			hasUrl: !!options.downloadUrl
 		});
 
 		try {
@@ -121,11 +120,25 @@ export class SABnzbdClient implements IDownloadClient {
 			// Check for NZB file content
 			const nzbContent = options.nzbFile || options.torrentFile;
 			if (nzbContent) {
-				const safeTitle = options.title && options.title.trim().length > 0 ? options.title : `SABnzbd_Grab_${Date.now()}`;
+				// Sanitize title for filename - remove special characters that might cause issues
+				const safeTitle = options.title && options.title.trim().length > 0
+					? options.title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim()
+					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
+
+				logger.debug('[SABnzbd] NZB file details', {
+					originalTitle: options.title,
+					safeTitle,
+					filename,
+					category: options.category
+				});
+
 				response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);
 			} else if (options.downloadUrl) {
-				const safeTitle = options.title && options.title.trim().length > 0 ? options.title : `SABnzbd_Grab_${Date.now()}`;
+				// Sanitize title for filename - remove special characters that might cause issues
+				const safeTitle = options.title && options.title.trim().length > 0
+					? options.title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim()
+					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
 				response = await this.proxy.downloadNzbByUrl(
 					options.downloadUrl,

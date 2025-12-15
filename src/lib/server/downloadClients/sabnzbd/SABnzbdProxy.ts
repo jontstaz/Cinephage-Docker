@@ -123,7 +123,17 @@ export class SABnzbdProxy {
 		const params = new URLSearchParams();
 		params.set('cat', category);
 		params.set('priority', priority.toString());
-		params.set('nzbname', filename);
+		// nzbname should be the filename without the .nzb extension
+		const nzbname = filename.endsWith('.nzb') ? filename.slice(0, -4) : filename;
+		params.set('nzbname', nzbname);
+
+		logger.debug('[SABnzbd] API request details', {
+			mode: 'addfile',
+			filename,
+			nzbname,
+			category,
+			priority
+		});
 
 		const response = await this.executeMultipartRequest(
 			'addfile',
@@ -153,7 +163,9 @@ export class SABnzbdProxy {
 		params.set('cat', category);
 		params.set('priority', priority.toString());
 		if (nzbName) {
-			params.set('nzbname', nzbName);
+			// nzbname should be the filename without the .nzb extension
+			const nzbname = nzbName.endsWith('.nzb') ? nzbName.slice(0, -4) : nzbName;
+			params.set('nzbname', nzbname);
 		}
 
 		const response = await this.executeRequest<SabnzbdAddResponse | SabnzbdErrorResponse>(

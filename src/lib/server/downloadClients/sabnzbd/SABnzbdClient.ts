@@ -121,25 +121,39 @@ export class SABnzbdClient implements IDownloadClient {
 			const nzbContent = options.nzbFile || options.torrentFile;
 			if (nzbContent) {
 				// Sanitize title for filename - remove special characters that might cause issues
+				// But be less aggressive with spacing to preserve the original title format
 				const safeTitle = options.title && options.title.trim().length > 0
-					? options.title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim()
+					? options.title.replace(/[<>:"/\\|?*]/g, '_').trim()
 					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
 
-				logger.debug('[SABnzbd] NZB file details', {
+				logger.info('[SABnzbd] NZB file details', {
 					originalTitle: options.title,
 					safeTitle,
 					filename,
-					category: options.category
+					category: options.category,
+					titleIsEmpty: !options.title,
+					titleLength: options.title?.length,
+					titleTrimmed: options.title?.trim()
 				});
 
 				response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);
 			} else if (options.downloadUrl) {
 				// Sanitize title for filename - remove special characters that might cause issues
 				const safeTitle = options.title && options.title.trim().length > 0
-					? options.title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim()
+					? options.title.replace(/[<>:"/\\|?*]/g, '_').trim()
 					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
+
+				logger.info('[SABnzbd] NZB URL details', {
+					originalTitle: options.title,
+					safeTitle,
+					filename,
+					category: options.category,
+					titleIsEmpty: !options.title,
+					titleLength: options.title?.length
+				});
+
 				response = await this.proxy.downloadNzbByUrl(
 					options.downloadUrl,
 					options.category,

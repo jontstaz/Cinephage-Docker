@@ -107,16 +107,7 @@ export class SABnzbdClient implements IDownloadClient {
 		const priority = mapPriorityToSabnzbd(options.priority);
 
 		// Log everything about the title to debug the issue
-		logger.error('[SABnzbd] TITLE DEBUG - addDownload called with', {
-			title: options.title,
-			titleType: typeof options.title,
-			titleIsNull: options.title === null,
-			titleIsUndefined: options.title === undefined,
-			titleLength: options.title?.length,
-			titleTrimmed: options.title?.trim(),
-			titleTrimmedLength: options.title?.trim()?.length,
-			allOptions: JSON.stringify(options, null, 2)
-		});
+		logger.error(`[SABnzbd] TITLE DEBUG - Title: "${options.title}", Type: ${typeof options.title}, IsNull: ${options.title === null}, Length: ${options.title?.length}`);
 
 		logger.info('[SABnzbd] Adding download', {
 			title: options.title,
@@ -133,15 +124,11 @@ export class SABnzbdClient implements IDownloadClient {
 			const nzbContent = options.nzbFile || options.torrentFile;
 			if (nzbContent) {
 				// Debug the exact conditions
-				const titleCheck = {
-					hasTitle: !!options.title,
-					title: options.title,
-					titleTrimmed: options.title?.trim(),
-					titleTrimmedLength: options.title?.trim()?.length,
-					condition: options.title && options.title.trim().length > 0
-				};
+				const hasTitle = !!options.title;
+				const titleTrimmed = options.title?.trim();
+				const condition = options.title && options.title.trim().length > 0;
 
-				logger.error('[SABnzbd] TITLE CHECK - Before creating safeTitle', titleCheck);
+				logger.error(`[SABnzbd] TITLE CHECK - HasTitle: ${hasTitle}, Trimmed: "${titleTrimmed}", Condition: ${condition}`);
 
 				// Sanitize title for filename - remove special characters that might cause issues
 				// But be less aggressive with spacing to preserve the original title format
@@ -150,17 +137,20 @@ export class SABnzbdClient implements IDownloadClient {
 					: `SABnzbd_Grab_${Date.now()}`;
 				const filename = `${safeTitle}.nzb`;
 
-				logger.error('[SABnzbd] FINAL TITLE - After safeTitle creation', {
-					originalTitle: options.title,
-					safeTitle,
-					filename,
-					isUsingFallback: safeTitle.startsWith('SABnzbd_Grab_'),
-					category: options.category,
-					nzbContentSize: nzbContent.length,
-					nzbContentPreview: nzbContent.toString('utf8', 0, 200)
-				});
+				const isUsingFallback = safeTitle.startsWith('SABnzbd_Grab_');
+				const preview = nzbContent.toString('utf8', 0, 100).replace(/\n/g, '\\n');
 
-				response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);
+				logger.error(`[SABnzbd] FINAL TITLE - Original: "${options.title}", Safe: "${safeTitle}", UsingFallback: ${isUsingFallback}, NZB Size: ${nzbContent.length}`);
+				logger.error(`[SABnzbd] NZB Preview: ${preview}...`);
+
+				try {
+					response = await this.proxy.downloadNzb(nzbContent, filename, options.category, priority);
+				} catch (apiError) {
+					logger.error(`[SABnzbd] API ERROR in downloadNzb: ${apiError instanceof Error ? apiError.message : 'Unknown error'}`, {
+						stack: apiError instanceof Error ? apiError.stack : undefined
+					});
+					throw apiError;
+				}
 			} else if (options.downloadUrl) {
 				// Sanitize title for filename - remove special characters that might cause issues
 				const safeTitle = options.title && options.title.trim().length > 0
@@ -177,12 +167,19 @@ export class SABnzbdClient implements IDownloadClient {
 					titleLength: options.title?.length
 				});
 
-				response = await this.proxy.downloadNzbByUrl(
-					options.downloadUrl,
-					options.category,
-					priority,
-					filename
-				);
+				try {
+					response = await this.proxy.downloadNzbByUrl(
+						options.downloadUrl,
+						options.category,
+						priority,
+						filename
+					);
+				} catch (apiError) {
+					logger.error(`[SABnzbd] API ERROR in downloadNzbByUrl: ${apiError instanceof Error ? apiError.message : 'Unknown error'}`, {
+						stack: apiError instanceof Error ? apiError.stack : undefined
+					});
+					throw apiError;
+				}
 			} else {
 				throw new Error('Must provide either NZB file content or download URL');
 			}
@@ -202,7 +199,11 @@ export class SABnzbdClient implements IDownloadClient {
 			return nzoId;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Unknown error';
-			logger.error('[SABnzbd] Failed to add download', { error: message });
+			const stack = error instanceof Error ? error.stack : undefined;
+			logger.error(`[SABnzbd] Failed to add download - ERROR: ${message}`, {
+				errorName: error instanceof Error ? error.constructor.name : 'Unknown',
+				stack: stack
+			});
 			throw error;
 		}
 	}
